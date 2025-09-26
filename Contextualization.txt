@@ -1,0 +1,52 @@
+Game Recommendation Assistant
+
+Domain: We are going to develop a system that recommend a large variety of games according to the 
+preferences of the user. It can return different types of data, such as texts, images and videos.
+
+The problem statement: Sometimes, gamers find it difficult to discover new games of their interest,
+through this system, they can find similar games that follow the texts or images they provide. This
+system can also help them find the specific game they are looking for, even if what they only know
+is either its game content described using text or a snapshot of a gameplay.
+
+The business value: This problem is worth solving as it can be served somehow as a catalyzer to the game market
+in a positive way. The main beneficiaries of this system would be the game developers and the platform holders.
+Taking Steam as an example, a famous PC video games distribution digital platform, where all indie game developers
+can upload their games here paying a certain amount of turnover to the platform. However, not all games can provide a
+living to their developers, there are always games that sell better than others due to factors like game types and
+trends nowadays. Nonetheless, if an AI model based recommendation system were set, then more games that were hidden before
+could also have a chance to be sold.
+
+Task typology 1: (same-modality similarity search):
+Given a in-game snapshot or the cover of the game, the system retrieves other game covers
+similar to the one provided by the user.
+
+Task typology 2: (multi-modality similarity search):
+Given a game type such as "MMORPG", the system retrieves game covers (images), trailers (videos) and descriptions of MMORPG games (texts).
+
+Task typology 3: (generative tasks with external models):
+Use a pre-trained model to automatically assist users in finding games. For example, given a screenshot,
+generate a short description and relevant tags; given a trailer, generate a summary or answer user questions about its content;
+or given a vague text description, it can retrieve relevant information from vector databases and integrate it into a Q&A template (The Answering one)
+to provide clear answers that improve search and recommendations. Futhermore, users can ask questions like "What is the name of this game {image_0}?" and
+the system should be able to return a clear answer (ideally).
+
+---------------------------------------------------------
+
+Limitations of the project:
+
+- We are not going to include reviews of each game in the dataset, as every game has its own reviews and reputation.
+  Besides, the pros from collecting a relevant amount of reviews that benefit our generative models when answering user questions
+  might not surpass the cons, since its impossible to have a dataset that covers all the games in the market. Moreover,
+  considering that users come from different backgrounds, so not all comments are in English, so it may be necessary to translate
+  all of them into English if we want the model to perform correctly, although its also possible to use a multilingual generative model,
+  but this type of models are usually more heavy since it needs more parameters to obtain that knowledge.
+
+- First we tried to include the functionality of finding games based on in-game screenshots (focusing on in-game screenshots only ->
+  if there are screeshots for a game, we use them, if not we just pass), but we realized this approach may not be practical, because
+  there are a lot of games with similar in-game sceneries, so proving many of them may not be effective for the information retrieval
+  process. So we decided to include only game covers, since most of the time games' contents have similar art styles to their covers.
+
+- If we find various datasets and want to mix them up. Then it is very likely that final dataset contain images and descriptions of the same game.
+  It is very time costly to decide on which is better so we will just keep them both, but the cleaning of the data before loading them onto the Trusted Zone.
+
+- The storage limit of MinIO
