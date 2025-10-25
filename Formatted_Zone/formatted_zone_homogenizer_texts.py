@@ -351,6 +351,6 @@ def convert_documents_to_txt(client, bucket, prefix=""):
 
     elapsed= time.perf_counter() - t0
     logger.info(
-        "Conversion completed in %.2fs — scanned=%d, converted_txt=%d, converted_others=%d, skipped=%d, failed=%d",
+        "Texts conversion completed in %.2fs — scanned=%d, converted_txt=%d, converted_others=%d, skipped=%d, failed=%d",
         elapsed, summary["scanned"], summary["converted_txt"], summary["converted_other"], summary["skipped"], summary["failed"]
     )

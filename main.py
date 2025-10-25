@@ -7,6 +7,7 @@ from Landing_Zone.persistent_landing import move_files
 from utils.utils import replicate_bucket
 from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
 from Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
+from Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_mp4
 
 def parse_args_credentials_init():
     """
@@ -180,11 +181,28 @@ def formatted_init(client):
 
 def formatted(client):
     """
+    Run the full formatting pipeline on the 'formatted-zone' bucket.
+
+    This function processes all supported media types stored under the
+    `formatted-zone` structure in S3/MinIO. Specifically, it performs:
+
+      - Image normalization — converts all non-PNG images to `.png`
+        under `formatted-zone/images/`.
+      - Document normalization — converts all supported document formats
+        (e.g., PDF, DOCX, HTML, RTF, ODT) to plain-text `.txt` with utf-8 encoding
+        under `formatted-zone/texts/`.
+      - Video normalization — converts all non-MP4 videos to `.mp4`
+        under `formatted-zone/videos/`.
+
+    The goal is to ensure all media in the formatted zone share consistent,
+    standardized formats for downstream processing.
 
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     """
     convert_images_to_png(client, "formatted-zone", "images/")
     convert_documents_to_txt(client, "formatted-zone", "texts/")
+    convert_videos_to_mp4(client, "formatted-zone", "videos/")
+
 
 
 
@@ -196,4 +214,4 @@ if __name__ == "__main__":
     #temporal_landing_init(s3_client)
     #persistent_landing_init(s3_client)
     #formatted_init(s3_client)
-    #formatted(s3_client)
+    formatted(s3_client)

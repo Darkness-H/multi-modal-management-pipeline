@@ -84,7 +84,7 @@ def convert_images_to_png(client, bucket, prefix=""):
 
     elapsed = time.perf_counter() - t0
     logger.info(
-        "Conversion completed in %.2fs — scanned=%d, converted=%d, skipped(folders=%d, png=%d), failed=%d",
+        "Images conversion completed in %.2fs — scanned=%d, converted=%d, skipped(folders=%d, png=%d), failed=%d",
         elapsed, summary["scanned"], summary["converted"],
         summary["skipped_folders"], summary["skipped_png"], summary["failed"]
     )
