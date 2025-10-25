@@ -1,8 +1,14 @@
 import argparse
-from Landing_Zone.landing_zone import *
-from Landing_Zone.temporal_landing import *
+import logging
+import time
+
+from Landing_Zone.landing_zone import make_s3_client,ensure_bucket,ensure_prefixes
+from Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
 from Landing_Zone.persistent_landing import move_files
-from utils.utils import *
+from utils.utils import replicate_bucket
+from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
+
+
 def parse_args_credentials_init():
     """
     Parse command-line arguments for connect minio.
@@ -32,8 +38,7 @@ def parse_args_landing_init():
         default=["temporal-landing/", "persistent-landing/"],
         help="Folder-like prefixes to ensure under the bucket (trailing slash is optional).",
     )
-    parser.add_argument("--log-level", default="INFO",
-                        help="Logging level (e.g., DEBUG, INFO, WARNING, ERROR).")
+
     return parser.parse_args()
 
 
@@ -52,33 +57,41 @@ def parse_args_temporal_landing():
                         help="Dataset split to load (e.g., 'train', 'test', 'validation').")
     parser.add_argument("--cache-dir", default=None,
                         help="HF datasets cache directory.")
-    parser.add_argument("--log-level", default="INFO",
-                        help="Logging level, e.g., DEBUG, INFO, WARNING, ERROR.")
     return parser.parse_args()
     args = parse_args_landing_init()
 
 def connect_minio():
     """
-    build client
+    Build and return an S3-compatible client for MinIO.
+
+    This function serves as the connection initializer for all subsequent
+    data lake operations. It parses the connection parameters (endpoint,
+    access key, secret key, and logging level) from the command line and
+    creates a boto3 S3 client instance configured for MinIO compatibility.
+
     """
     args = parse_args_credentials_init()
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(levelname)s: %(message)s"
+        format="%(levelname)s: %(name)s: %(message)s"
     )
 
-    client = make_s3_client(args.endpoint, args.access_key, args.secret_key)
-    return client
+    s3 = make_s3_client(args.endpoint, args.access_key, args.secret_key)
+    return s3
 
 def landing_init(client):
     """
-    Ensure bucket and required prefixes exist.
+    This function prepares the basic folder-like structure used for raw
+    and temporary data ingestion in a data lake. It uses an existing
+    S3-compatible client to:
+        - Create the target bucket if it does not already exist.
+        - Ensure that all required folder prefixes (e.g., temporal/persistent)
+          are materialized within the bucket.
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+
     """
     args = parse_args_landing_init()
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(levelname)s: %(message)s"
-    )
 
     ensure_bucket(client, args.bucket)
     ensure_prefixes(client, args.bucket, args.prefixes)
@@ -92,24 +105,24 @@ def temporal_landing_init(client, limit: int = 500):
     The function connects to the S3-compatible MinIO service, retrieves
     datasets from predefined sources (e.g., Hugging Face), and uploads them
     to the temporal landing area for further processing.
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+
     """
+    logger = logging.getLogger(__name__)
     args = parse_args_temporal_landing()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO),
-                        format="%(levelname)s: %(message)s")
 
-    logging.info("Loading dataset 1: %s (split=%s)", args.ds1, args.split)
+
+    # load data
     ds1_raw = load_huggingface_dataset(args.ds1, args.split, args.cache_dir)
-    print(f"The dataset 1 ('{args.ds1}'/{args.split}) contains {ds1_raw.num_rows} rows")
-
-    logging.info("Loading dataset 2: %s (split=%s)", args.ds2, args.split)
     ds2_raw = load_huggingface_dataset(args.ds2, args.split, args.cache_dir)
-    print(f"The dataset 2 ('{args.ds2}'/{args.split}) contains {ds2_raw.num_rows} rows")
+
+
     # We are going to use the first n obs from each dataset for testing purposes
     ds1 = ds1_raw[0:limit]
     ds2 = ds2_raw[0:limit]
     # Print the number of rows of each subdataset
-    print(f"The subdataset 1 contains {len(ds1['About the game'])} rows")
-    print(f"The subdataset 2 contains {len(ds2['description'])} rows")
+    logger.info("Prepared subsets: ds1=%d rows, ds2=%d rows", len(ds1['About the game']), len(ds2['description']))
 
 
     # We are interested on Text, Image and Video data
@@ -144,21 +157,42 @@ def persistent_landing_init(client):
          (e.g., `texts/`, `images/`, `videos/`, etc.),
       - classifies incoming objects by Content-Type (text/*, image/*, video/*)
          and moves/copies them into the corresponding subfolders.
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     """
+
     ensure_prefixes(client, "landing-zone", ["persistent-landing/texts", "persistent-landing/images", "persistent-landing/videos"])
     move_files(client, "landing-zone")
 
 def formatted_init(client):
     """
+    This function replicates all objects from the persistent landing area
+    (i.e., 'landing-zone/persistent-landing/') into a new S3 bucket named
+    'formatted-zone'. The target bucket will be created automatically if
+    it does not exist.
 
+    The formatted zone acts as the next stage of the data lake pipeline,
+    where raw data from the landing zone is stored in a consistent,
+    structured format ready for downstream processing or analytics.
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     """
     replicate_bucket(client, "landing-zone", "formatted-zone", "persistent-landing")
+
+def formatted(client):
+    """
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+    """
+    convert_images_to_png(client, "formatted-zone", "images/")
+
 
 
 
 if __name__ == "__main__":
-    client = connect_minio()
-    #landing_init(client)
-    #temporal_landing_init(client)
-    #persistent_landing_init(client)
-    formatted_init(client)
+    s3_client = connect_minio()
+    #landing_init(s3_client)
+    #temporal_landing_init(s3_client)
+    #persistent_landing_init(s3_client)
+    formatted_init(s3_client)
+    formatted(s3_client)

@@ -2,10 +2,11 @@
 import io
 import ast
 import time
-
+import logging
 import requests
 from datasets import load_dataset, Dataset
 
+logger = logging.getLogger(__name__)
 
 def load_huggingface_dataset(dataset_id: str, split: str, cache_dir: str | None):
     """
@@ -16,7 +17,10 @@ def load_huggingface_dataset(dataset_id: str, split: str, cache_dir: str | None)
     cache_dir   : str   - Optional local path to store the downloaded dataset. If None, the default Hugging Face cache directory is used.
 
     """
+    logger.info("Loading dataset 1: %s (split=%s)", dataset_id, split)
+    t0 = time.perf_counter()
     ds = load_dataset(dataset_id, split=split, cache_dir=cache_dir)  # streaming removed
+    logger.info("Loaded dataset 1 with %d rows in %.2fs", ds.num_rows, time.perf_counter() - t0)
     if not isinstance(ds, Dataset):
         raise TypeError(f"Expected a Dataset, got {type(ds)}. "
                         f"Check the split name '{split}' for dataset '{dataset_id}'.")
@@ -36,12 +40,29 @@ def upload_strings_separately(bucket_name, client, strings, path="temporal-landi
     limit       : int   - Maximum number of strings to upload.
     offset      : int   - starting index offset for filenames
     """
+
+    # Ensure path ends with '/'
     if path and not path.endswith("/"):
         path += "/"
 
+    summary = {
+        "attempted": 0,
+        "uploaded": 0,
+        "skipped_empty": 0,
+        "failed": 0,
+    }
+
+    logger.info(
+        "Uploading strings: bucket=%s, path=%s, prefix=%s, limit=%d, offset=%d",
+        bucket_name, path or "(root)", prefix, limit, offset
+    )
+
+    t0 = time.perf_counter()
     uploaded = 0
     for s in strings:
+        summary["attempted"] += 1
         if not s:  # skip empty or None
+            summary["skipped_empty"] += 1
             continue
 
         # stop if we reached the limit
@@ -52,14 +73,25 @@ def upload_strings_separately(bucket_name, client, strings, path="temporal-landi
         i = offset + uploaded  # numbering: offset+1, offset+2, ...
         object_name = f"{path}{prefix}_{i}.txt"
 
-        client.put_object(
-            Bucket=bucket_name,
-            Key=object_name,
-            Body=io.BytesIO(s.encode("utf-8")),
-            ContentType="text/plain",
-        )
-        print(f"Uploaded: {object_name}")
+        try:
+            client.put_object(
+                Bucket=bucket_name,
+                Key=object_name,
+                Body=io.BytesIO(s.encode("utf-8")),
+                ContentType="text/plain",
+            )
+            summary["uploaded"] += 1
+            logger.debug("Uploaded: s3://%s/%s", bucket_name, object_name)
 
+        except Exception as e:
+            summary["failed"] += 1
+            logger.exception("Failed to upload %r -> s3://%s/%s: %s", s[:40] + ("..." if len(s) > 40 else ""), bucket_name, object_name, e)
+
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        "Upload strings completed in %.2fs — attempted=%d, uploaded=%d, skipped_empty=%d failed=%d", elapsed,
+        summary["attempted"], summary["uploaded"], summary["skipped_empty"],  summary["failed"]
+    )
 
 def extract_screenshot_urls(records, field_type = "comma"):
     """
@@ -124,12 +156,30 @@ def upload_media_from_links(bucket_name, client, links,
         path += "/"
     uploaded = 0
     session = requests.Session()
+    summary = {
+        "attempted": 0,
+        "uploaded": 0,
+        "skipped_empty": 0,
+        "skipped_http": 0,
+        "skipped_timeout": 0,
+        "failed": 0,
+    }
+
+    logger.info(
+        "Starting upload from links: bucket=%s, path=%s, limit=%s, start_index=%s",
+        bucket_name, path or "(root)", limit, start_index
+    )
+    t0 = time.perf_counter()
     try:
         for url in links:
             if not url:
+                summary["skipped_empty"] += 1
                 continue
+
             if limit is not None and uploaded >= limit:
                 break
+
+            summary["attempted"] += 1
             attempt = 0
             while True:
                 try:
@@ -137,9 +187,12 @@ def upload_media_from_links(bucket_name, client, links,
                     with session.get(url, stream=True, timeout=timeout) as r:
                         # Raise for any HTTP error (404, 5xx, etc.)
                         r.raise_for_status()
+
+
                         ext = url.split('.')[-1].split('?')[0]  # get file extension
                         object_name = f"{path}{prefix}_{start_index}.{ext}"
                         start_index = start_index + 1
+
                         # Stream → S3
                         client.upload_fileobj(
                             Fileobj=r.raw,
@@ -147,30 +200,53 @@ def upload_media_from_links(bucket_name, client, links,
                             Key=object_name,
                             ExtraArgs={"ContentType": f"{prefix}/{ext}"}
                         )
-                        print(f"Uploaded: {object_name}")
+
+                        summary["uploaded"] += 1
                         uploaded += 1
+                        logger.debug("Uploaded: %s -> s3://%s/%s", url, bucket_name, object_name)
+
                         break  # success, exit retry loop
+
                 except requests.exceptions.Timeout:
                     attempt += 1
+
                     if attempt > retries:
-                        print(f"Skipped (Timeout): {url}")
+                        summary["skipped_timeout"] += 1
+                        logger.warning("Timeout (skipped after %d retries): %s", retries, url)
                         break
+
                     time.sleep(backoff ** attempt)
+
                 except requests.exceptions.HTTPError as e:
                     status = getattr(e.response, "status_code", None)
+                    summary["skipped_http"] += 1
+
                     if status == 404:
-                        print(f"Skipped (404 Not Found): {url}")
+                        logger.warning("HTTP 404 (skipped): %s", url)
                     else:
-                        print(f"HTTP error for {url}: {e}")
+                        logger.warning("HTTP error %s for %s: %s", status, url, e)
                     break  # do not retry non-timeout HTTP errors by default
+
                 except Exception as e:
                     attempt += 1
+
                     if attempt > retries:
-                        print(f"Failed {url}: {e}")
+                        summary["failed"] += 1
+                        logger.exception("Failed after %d retries for %s: %s", retries, url, e)
                         break
-                    time.sleep(backoff ** attempt)
+
+                    sleep_s = backoff ** attempt
+                    logger.warning("Error (retry %d/%d in %.1fs) for %s: %s", attempt, retries, sleep_s, url, e)
+                    time.sleep(sleep_s)
 
 
 
     finally:
         session.close()
+
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        "Upload completed in %.2fs — attempted=%d, uploaded=%d, skipped(empty=%d, http=%d, timeout=%d), failed=%d", elapsed,
+        summary["attempted"], summary["uploaded"], summary["skipped_empty"],
+        summary["skipped_http"], summary["skipped_timeout"], summary["failed"]
+    )
