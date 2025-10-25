@@ -1,13 +1,12 @@
 import argparse
 import logging
-import time
 
 from Landing_Zone.landing_zone import make_s3_client,ensure_bucket,ensure_prefixes
 from Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
 from Landing_Zone.persistent_landing import move_files
 from utils.utils import replicate_bucket
 from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
-
+from Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
 
 def parse_args_credentials_init():
     """
@@ -185,6 +184,8 @@ def formatted(client):
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     """
     convert_images_to_png(client, "formatted-zone", "images/")
+    convert_documents_to_txt(client, "formatted-zone", "texts/")
+
 
 
 
@@ -194,5 +195,5 @@ if __name__ == "__main__":
     #landing_init(s3_client)
     #temporal_landing_init(s3_client)
     #persistent_landing_init(s3_client)
-    formatted_init(s3_client)
-    formatted(s3_client)
+    #formatted_init(s3_client)
+    #formatted(s3_client)
