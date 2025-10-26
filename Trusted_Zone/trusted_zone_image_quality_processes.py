@@ -248,10 +248,19 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
     }
     t0 = time.perf_counter()
 
+    logger.info(
+        "Starting image preprocessing: rows=%d, target_size=%s, bucket=%s, prefix=%s",
+        summary["total_rows"], target_size, bucket, prefix
+    )
     for row in df.itertuples(index=False):
 
         # get image name
         key = row.file_name
+
+        if not key:
+            summary["skipped_errors"] += 1
+            logger.warning("Row missing 'file_name'; skipping.")
+            continue
         # remove empty or duplicated image
         if row.duplicated:
             client.delete_object(Bucket=bucket, Key=key)
@@ -260,10 +269,7 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
             continue
 
 
-        if not key:
-            summary["skipped_errors"] += 1
-            logger.warning("Row missing 'file_name'; skipping.")
-            continue
+
 
         try:
             # Get object metadata to check size

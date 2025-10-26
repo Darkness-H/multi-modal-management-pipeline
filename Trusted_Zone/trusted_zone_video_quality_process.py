@@ -263,6 +263,7 @@ def preprocess_video(client, bucket, prefix="", target_fps = 1, target_size=(224
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     bucket          : str                   - Target S3/MinIO bucket.
     prefix          : str                   - Optional key prefix (acts like a folder path).
+    target_fps      : int                   - Target FPS (int).
     target_size     : tuple[int, int]       - optional Target spatial resolution
     """
     data,summary = get_data_videos(client, bucket, prefix=prefix)
@@ -279,7 +280,132 @@ def preprocess_video(client, bucket, prefix="", target_fps = 1, target_size=(224
         "skipped_errors": 0,
     }
     t0 = time.perf_counter()
-
+    in_path = "temp_video_in.mp4"
+    out_path = "temp_video_out.mp4"
+    logger.info(
+        "Starting video preprocessing: rows=%d, target_fps=%s, target_size=%s, bucket=%s, prefix=%s",
+        summary["total_rows"], target_fps, target_size, bucket, prefix
+    )
     for row in df.itertuples(index=False):
         # get video name
         key = row.file_name
+        # remove empty or duplicated image
+        if not key:
+            summary["skipped_errors"] += 1
+            logger.warning("Row missing 'file_name'; skipping.")
+            continue
+
+        if row.duplicated:
+            client.delete_object(Bucket=bucket, Key=key)
+            summary["duplicates_deleted"] += 1
+            logger.debug(f"Deleted duplicate: {key}")
+            continue
+
+
+
+        try:
+            # Get object metadata to check size
+            head = client.head_object(Bucket=bucket, Key=key)
+            if head['ContentLength'] == 0:
+                # Delete the null image (size = 0)
+                client.delete_object(Bucket=bucket, Key=key)
+                summary["empty_deleted"] += 1
+                logger.debug(f"Deleted empty object (size=0): {key}")
+                continue
+        except Exception as e:
+            summary["skipped_errors"] += 1
+            logger.error(f"head_object failed for {key}: {e}")
+            continue
+
+        try:
+            # Download the video
+            resp = client.get_object(Bucket=bucket, Key=key)
+            body = resp["Body"].read()
+
+            # Copy video to temp file
+
+            with open(in_path, "wb") as f:
+                f.write(body)
+            logger.debug("Downloaded %s (%d bytes) to %s", key, len(body), in_path)
+
+            cap = cv2.VideoCapture(in_path)
+            if not cap.isOpened():
+                summary["skipped_errors"] += 1
+                logger.error("Could not open video: %s", key)
+                continue
+
+            FOURCC = cv2.VideoWriter_fourcc(*'mp4v')
+
+            out = cv2.VideoWriter(out_path, FOURCC, 15, target_size)
+            if not out.isOpened():
+                summary["skipped_errors"] += 1
+                logger.error("Could not open VideoWriter for: %s", key)
+                cap.release()
+                continue
+
+            original_fps = int(cap.get(cv2.CAP_PROP_FPS))
+            if original_fps == 0:
+                summary["skipped_errors"] += 1
+                logger.error("Original FPS invalid (%.3f). Cannot process %s", original_fps, key)
+                cap.release()
+                out.release()
+                continue
+
+            # Accumulator-based sampling: avoids float modulo artifacts
+            acc = 0.0
+            frame_count = 0
+            frames_read_count = 0
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+            logger.debug(
+                "Begin normalize: %s (orig_fps=%.3f, est_frames=%d, target_fps=%s, target_size=%s)",
+                key, original_fps, total_frames, target_fps, target_size
+            )
+
+            # Read frames, sample at target_fps in time domain, then resize and write out
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frames_read_count += 1
+                acc += target_fps  # advance in "target time units"
+
+                # Sample a frame whenever accumulated target units exceed original FPS
+                if acc >= original_fps:
+                    acc -= original_fps
+                    # INTER_AREA is generally better for downscaling
+                    frame_resized = cv2.resize(frame, tuple(target_size), interpolation=cv2.INTER_AREA)
+                    out.write(frame_resized)
+                    frame_count += 1
+
+            cap.release()
+            out.release()
+            cv2.destroyAllWindows()
+
+            # Upload normalized output back to the same key
+            with open(out_path, "rb") as f:
+                client.upload_fileobj(f, Bucket=bucket, Key=key, ExtraArgs={"ContentType": "video/mp4"})
+
+            summary["normalized"] += 1
+            logger.debug(
+                "Normalized: %s | sampled=%d of read=%d frames | orig_fps=%.3f -> target_fps=%s",
+                key, frame_count, frames_read_count, original_fps, target_fps
+            )
+
+        except Exception as e:
+            summary["skipped_errors"] += 1
+            logger.error(f"Failed to normalize {key}: {e}")
+
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        "Video preprocessing completed in %.2fs - total_image=%d, empty_deleted=%d, duplicates_deleted=%d, "
+        "normalized=%d, errors=%d",
+        elapsed,
+        summary["total_rows"],
+        summary["empty_deleted"],
+        summary["duplicates_deleted"],
+        summary["normalized"],
+        summary["skipped_errors"],
+    )
+    os.remove(in_path)
+    os.remove(out_path)
