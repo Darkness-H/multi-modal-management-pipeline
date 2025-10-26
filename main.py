@@ -8,6 +8,7 @@ from utils.utils import replicate_bucket
 from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
 from Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
 from Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_mp4
+from Trusted_Zone.trusted_zone_image_quality_processes import preprocess_image
 
 def parse_args_credentials_init():
     """
@@ -134,12 +135,12 @@ def temporal_landing_init(client, limit: int = 500):
     upload_strings_separately("landing-zone", client, strings =
                               ds1['About the game'] +
                               ds2['description'],
-                              path = "temporal-landing/", limit= 100)
+                              path = "temporal-landing/", limit= 1000)
 
     # Uploading image files (combining both datasets)
     upload_media_from_links("landing-zone", client, links=
     ds1['Header image'] + ds2['background_image'],  #ds1['Header image'] + ds2['background_image_additional']
-                            path="temporal-landing/", limit= 100)  # If this process is taking too long, we can just skip the screeshots
+                            path="temporal-landing/", limit= 1000)  # If this process is taking too long, we can just skip the screeshots
 
     # Uploading video files
     upload_media_from_links("landing-zone", client, links=
@@ -203,8 +204,28 @@ def formatted(client):
     convert_documents_to_txt(client, "formatted-zone", "texts/")
     convert_videos_to_mp4(client, "formatted-zone", "videos/")
 
+def trusted_init(client):
+    """
+    This function replicates all objects from the formatted data area
+    (i.e., 'formatted-zone/') into a new S3 bucket named 'trusted-zone'.
+    The target bucket will be created automatically if it does not exist.
 
+    The trusted zone represents the final curated layer in the data lake
+    pipeline, where standardized and validated data from the formatted zone
+    is consolidated for reliable consumption by downstream systems,
+    analytics workflows, or machine learning pipelines.
 
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+    """
+    replicate_bucket(client, "formatted-zone", "trusted-zone")
+
+def trusted(client):
+    """
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+    """
+
+    preprocess_image(client, "trusted-zone","images/")
 
 
 
@@ -214,4 +235,6 @@ if __name__ == "__main__":
     #temporal_landing_init(s3_client)
     #persistent_landing_init(s3_client)
     #formatted_init(s3_client)
-    formatted(s3_client)
+    #formatted(s3_client)
+    #trusted_init(s3_client)
+    #trusted(s3_client)

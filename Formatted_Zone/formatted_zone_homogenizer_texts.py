@@ -275,6 +275,10 @@ def convert_documents_to_txt(client, bucket, prefix=""):
     prefix          : str                   - Optional key prefix (acts like a folder path).
 
     """
+
+    # Ensure path ends with '/'
+    if prefix and not prefix.endswith("/"):
+        prefix += "/"
     paginator = client.get_paginator("list_objects_v2")
 
     t0 = time.perf_counter()

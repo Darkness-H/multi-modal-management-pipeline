@@ -3,7 +3,6 @@ import logging
 import os
 import time
 
-import boto3
 import warnings
 import tempfile
 from moviepy import VideoFileClip
@@ -18,7 +17,7 @@ def convert_single_video(client, bucket: str, key: str) -> bool:
 
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     bucket          : str                   - Target S3/MinIO bucket.
-    key          : str                      - Object key (path) within the bucket.
+    key             : str                   - Object key (path) within the bucket.
     """
     ext = os.path.splitext(key)[1].lower()
 
@@ -76,6 +75,7 @@ def convert_videos_to_mp4(client, bucket: str, prefix: str = ""):
     prefix          : str                   - Optional key prefix (acts like a folder path).
     """
 
+    # Ensure path ends with '/'
     if prefix and not prefix.endswith("/"):
         prefix += "/"
 
