@@ -4,11 +4,13 @@ import logging
 from Landing_Zone.landing_zone import make_s3_client,ensure_bucket,ensure_prefixes
 from Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
 from Landing_Zone.persistent_landing import move_files
+from Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
 from utils.utils import replicate_bucket
 from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
 from Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
 from Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_mp4
 from Trusted_Zone.trusted_zone_image_quality_processes import preprocess_image
+from Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
 
 def parse_args_credentials_init():
     """
@@ -225,8 +227,8 @@ def trusted(client):
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     """
 
-    preprocess_image(client, "trusted-zone","images/")
-
+    #preprocess_image(client, "trusted-zone","images/")
+    preprocess_video(client, "trusted-zone","videos/")
 
 
 if __name__ == "__main__":
@@ -237,4 +239,4 @@ if __name__ == "__main__":
     #formatted_init(s3_client)
     #formatted(s3_client)
     #trusted_init(s3_client)
-    #trusted(s3_client)
+    trusted(s3_client)

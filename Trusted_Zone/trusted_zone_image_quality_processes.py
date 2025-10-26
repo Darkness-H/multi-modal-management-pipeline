@@ -102,7 +102,7 @@ def get_data_images(client, bucket, prefix=""):
         summary["skipped"], summary["failed"]
     )
 
-    return data, summary
+    return data
 
 
 def generate_data_quality_images(df):
@@ -112,7 +112,7 @@ def generate_data_quality_images(df):
     The function analyzes a dataset of image metadata (e.g., file size, width,
     height, aspect ratio, mode) and produces visual summaries and descriptive
     statistics to help assess dataset consistency and detect anomalies.
-    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+
     df              : pandas.DataFrame      -  DataFrame containing per-image metadata. Expected columns include:
                                                 - 'file_name'     : str  – Image key or file path.
                                                 - 'file_size'     : float – File size in kilobytes (KB).
@@ -127,6 +127,7 @@ def generate_data_quality_images(df):
 
     num_images = df.shape[0]
     num_duplicated = df["duplicated"].sum()
+    head_html = df.head(10).to_html(border = 0)
     # Have a quick summary of the data
     desc_html = df.describe(include="all").to_html(border=0)
 
@@ -136,10 +137,10 @@ def generate_data_quality_images(df):
     modes_count = len(unique_modes)
     # charts generation
     plots = {}
-    def fig_to_base64(fig):
+    def fig_to_base64(figure):
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        plt.close(fig)
+        figure.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(figure)
         buf.seek(0)
         return base64.b64encode(buf.read()).decode("utf-8")
 
@@ -162,6 +163,8 @@ def generate_data_quality_images(df):
     ax.set_title("Aspect Ratio Distribution (W/H)")
     ax.set_xlabel("Aspect Ratio")
     plots["aspect_ratio"] = fig_to_base64(fig)
+
+
 
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -187,6 +190,8 @@ def generate_data_quality_images(df):
         <div class="metric">Average file size: <b>{df["file_size"].mean():.2f} KB</b></div>
         <div class="metric">Resolution (avg): <b>{df["width"].mean():.0f} × {df["height"].mean():.0f}</b></div>
         <div class="metric">Unique modes: <b>{modes_count}</b> ({modes_str})</div>
+        <h2>DataFrame head()</h2>
+        {head_html}
         <h2>DataFrame describe()</h2>
         {desc_html}
         <hr>
@@ -225,15 +230,15 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     bucket          : str                   - Target S3/MinIO bucket.
     prefix          : str                   - Optional key prefix (acts like a folder path).
-    target_size     :
+    target_size     : tuple[int, int]       - optional Target spatial resolution
     """
 
-    data,summary = get_data_images(client, bucket, prefix=prefix)
+    data = get_data_images(client, bucket, prefix=prefix)
     df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
     if df.empty:
         raise ValueError("No image data to report.")
     generate_data_quality_images(df)
-    # prepare counters
+
     summary = {
         "total_rows": int(df.shape[0]),
         "empty_deleted": 0,
@@ -245,7 +250,8 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
 
     for row in df.itertuples(index=False):
 
-
+        # get image name
+        key = row.file_name
         # remove empty or duplicated image
         if row.duplicated:
             client.delete_object(Bucket=bucket, Key=key)
@@ -253,8 +259,7 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
             logger.debug(f"Deleted duplicate: {key}")
             continue
 
-        # get image name
-        key = row.file_name
+
         if not key:
             summary["skipped_errors"] += 1
             logger.warning("Row missing 'file_name'; skipping.")
