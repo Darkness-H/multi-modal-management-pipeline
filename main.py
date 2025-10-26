@@ -1,69 +1,128 @@
 import argparse
 import logging
+from dataclasses import dataclass
+from typing import Optional, List
 
-from Landing_Zone.landing_zone import make_s3_client,ensure_bucket,ensure_prefixes
+from transformers.models.auto.video_processing_auto import video_processors
+
+from utils.bucket_utils import replicate_bucket,ensure_bucket,ensure_prefixes
+from utils.make_conecction import make_s3_client, make_chromaDB_client
+from utils.colection_utils import create_colection
+
 from Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
 from Landing_Zone.persistent_landing import move_files
-from Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
-from utils.utils import replicate_bucket
+
 from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
 from Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
 from Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_mp4
+
 from Trusted_Zone.trusted_zone_image_quality_processes import preprocess_image
 from Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
 
-def parse_args_credentials_init():
-    """
-    Parse command-line arguments for connect minio.
-    """
-    parser = argparse.ArgumentParser(description="connect to minio server.")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:9000",
-                        help="MinIO/S3 endpoint URL.")
-    parser.add_argument("--access-key", default="minioadmin",
-                        help="Access key (username) for MinIO/S3.")
-    parser.add_argument("--secret-key", default="minioadmin",
-                        help="Secret key (password) for MinIO/S3.")
-    parser.add_argument("--log-level", default="INFO",
-                        help="Logging level (e.g., DEBUG, INFO, WARNING, ERROR).")
-    return parser.parse_args()
+from exploitation_zone.exploitation_zone_image_embeddings import images_to_embeddings, get_image_model
+from exploitation_zone.exploitation_zone_video_embeddings import videos_to_embeddings, get_video_model
+
+# ---- Dataclasses to carry structured args ----
+@dataclass
+class MinioArgs:
+    endpoint: str
+    access_key: str
+    secret_key: str
+    log_level: str
+
+@dataclass
+class LandingArgs:
+    bucket: str
+    prefixes: List[str]
 
 
-def parse_args_landing_init():
-    """
-    Parse command-line arguments for create bucket of landing zone.
-    """
-    parser = argparse.ArgumentParser(description="Initialize MinIO buckets and folder-like prefixes.")
-    parser.add_argument("--bucket", default="landing-zone",
-                        help="Bucket name to ensure/create.")
-    parser.add_argument(
-        "--prefixes",
-        nargs="*",
-        default=["temporal-landing/", "persistent-landing/"],
-        help="Folder-like prefixes to ensure under the bucket (trailing slash is optional).",
-    )
 
-    return parser.parse_args()
+@dataclass
+class ChromaArgs:
+    host: str
+    port: int
+    use_ssl: bool
+    access_key: Optional[str]
+    secret_key: Optional[str]
+    bearer_token: Optional[str]
+    timeout: float
+
+@dataclass
+class AllArgs:
+    minio: MinioArgs
+    landing: LandingArgs
+    chroma: ChromaArgs
 
 
-def parse_args_temporal_landing():
+def parse_all_args() -> AllArgs:
     """
-    Parse command-line arguments for temporal landing (dataset root etc...).
+    Parse a single CLI that contains args for:
+    - MinIO credentials/init
+    - Landing zone init
+    - ChromaDB connection
+
+    Returns a structured AllArgs with sub-namespaces.
     """
     parser = argparse.ArgumentParser(
-        description="Load two Hugging Face datasets and print row counts (non-streaming)."
+        description="All-in-one CLI for MinIO init, landing, temporal dataset, and ChromaDB connection."
     )
-    parser.add_argument("--ds1", default="FronkonGames/steam-games-dataset",
-                        help="First dataset identifier on Hugging Face Hub.")
-    parser.add_argument("--ds2", default="atalaydenknalbant/rawg-games-dataset",
-                        help="Second dataset identifier on Hugging Face Hub.")
-    parser.add_argument("--split", default="train",
-                        help="Dataset split to load (e.g., 'train', 'test', 'validation').")
-    parser.add_argument("--cache-dir", default=None,
-                        help="HF datasets cache directory.")
-    return parser.parse_args()
-    args = parse_args_landing_init()
 
-def connect_minio():
+    # -------- MinIO group --------
+    g_minio = parser.add_argument_group("MinIO / S3")
+    g_minio.add_argument("--minio-endpoint", default="http://127.0.0.1:9000",
+                         help="MinIO/S3 endpoint URL.")
+    g_minio.add_argument("--minio-access-key", default="minioadmin",
+                         help="Access key (username) for MinIO/S3.")
+    g_minio.add_argument("--minio-secret-key", default="minioadmin",
+                         help="Secret key (password) for MinIO/S3.")
+    g_minio.add_argument("--minio-log-level", default="INFO",
+                         help="Logging level: DEBUG|INFO|WARNING|ERROR.")
+
+    # -------- Landing group --------
+    g_land = parser.add_argument_group("Landing Zone")
+    g_land.add_argument("--landing-bucket", default="landing-zone",
+                        help="Bucket name to ensure/create.")
+    g_land.add_argument("--landing-prefixes", nargs="*", default=["temporal-landing/", "persistent-landing/"],
+                        help="Folder-like prefixes to ensure under the bucket (trailing slash optional).")
+
+    # -------- ChromaDB group --------
+    g_chroma = parser.add_argument_group("ChromaDB")
+    g_chroma.add_argument("--chroma-host", default="localhost", help="Chroma server host.")
+    g_chroma.add_argument("--chroma-port", type=int, default=8000, help="Chroma server port.")
+    g_chroma.add_argument("--chroma-use-ssl", action="store_true", help="Use HTTPS if set.")
+    g_chroma.add_argument("--chroma-access-key", default=None, help="Optional X-Access-Key header.")
+    g_chroma.add_argument("--chroma-secret-key", default=None, help="Optional X-Secret-Key header.")
+    g_chroma.add_argument("--chroma-bearer-token", default=None, help="Optional Authorization: Bearer <token>.")
+    g_chroma.add_argument("--chroma-timeout", type=float, default=30.0, help="Client timeout seconds.")
+
+    ns = parser.parse_args()
+
+    minio = MinioArgs(
+        endpoint=ns.minio_endpoint,
+        access_key=ns.minio_access_key,
+        secret_key=ns.minio_secret_key,
+        log_level=ns.minio_log_level,
+    )
+
+    landing = LandingArgs(
+        bucket=ns.landing_bucket,
+        prefixes=list(ns.landing_prefixes or []),
+    )
+
+    chroma = ChromaArgs(
+        host=ns.chroma_host,
+        port=ns.chroma_port,
+        use_ssl=ns.chroma_use_ssl,
+        access_key=ns.chroma_access_key,
+        secret_key=ns.chroma_secret_key,
+        bearer_token=ns.chroma_bearer_token,
+        timeout=ns.chroma_timeout,
+    )
+
+    return AllArgs(minio=minio, landing=landing, chroma=chroma)
+
+
+def connect_minio(args_minio):
     """
     Build and return an S3-compatible client for MinIO.
 
@@ -73,16 +132,15 @@ def connect_minio():
     creates a boto3 S3 client instance configured for MinIO compatibility.
 
     """
-    args = parse_args_credentials_init()
     logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        level=getattr(logging, args_minio.log_level.upper(), logging.INFO),
         format="%(levelname)s: %(name)s: %(message)s"
     )
 
-    s3 = make_s3_client(args.endpoint, args.access_key, args.secret_key)
+    s3 = make_s3_client(args_minio.endpoint, args_minio.access_key, args_minio.secret_key)
     return s3
 
-def landing_init(client):
+def landing_init(client, args_landing):
     """
     This function prepares the basic folder-like structure used for raw
     and temporary data ingestion in a data lake. It uses an existing
@@ -94,13 +152,12 @@ def landing_init(client):
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
 
     """
-    args = parse_args_landing_init()
 
-    ensure_bucket(client, args.bucket)
-    ensure_prefixes(client, args.bucket, args.prefixes)
+    ensure_bucket(client, args_landing.bucket)
+    ensure_prefixes(client, args_landing.bucket, args_landing.prefixes)
 
 
-def temporal_landing_init(client, limit: int = 500):
+def temporal_landing_init(client):
     """
     Initialize the temporal landing zone by loading datasets and storing them
     into the 'landing-zone/temporal-landing/' folder on MinIO.
@@ -113,17 +170,24 @@ def temporal_landing_init(client, limit: int = 500):
 
     """
     logger = logging.getLogger(__name__)
-    args = parse_args_temporal_landing()
-
+    limit = 500
+    split = "train"
+    ds1_root ="FronkonGames/steam-games-dataset"
+    ds2_root ="atalaydenknalbant/rawg-games-dataset"
+    # -------- Temporal landing datasets --------
 
     # load data
-    ds1_raw = load_huggingface_dataset(args.ds1, args.split, args.cache_dir)
-    ds2_raw = load_huggingface_dataset(args.ds2, args.split, args.cache_dir)
+    ds1_raw = load_huggingface_dataset(ds1_root, split)
+    ds2_raw = load_huggingface_dataset(ds2_root, split)
 
 
     # We are going to use the first n obs from each dataset for testing purposes
-    ds1 = ds1_raw[0:limit]
-    ds2 = ds2_raw[0:limit]
+    if limit == None:
+        ds1 = ds1_raw
+        ds2 = ds2_raw
+    else :
+        ds1 = ds1_raw[0:limit]
+        ds2 = ds2_raw[0:limit]
     # Print the number of rows of each subdataset
     logger.info("Prepared subsets: ds1=%d rows, ds2=%d rows", len(ds1['About the game']), len(ds2['description']))
 
@@ -230,13 +294,52 @@ def trusted(client):
     #preprocess_image(client, "trusted-zone","images/")
     preprocess_video(client, "trusted-zone","videos/")
 
+def connect_chromaDB(args_chroma):
+    """
+    Initialize and validate a connection to a ChromaDB server.
+
+    This function constructs a ChromaDB client using the provided connection
+    parameters (host, port, authentication, and timeout). It also validates
+    the port number before attempting to connect.
+    """
+
+    # Validate port range before creating the client
+    if not (0 < args_chroma.port < 65536):
+        raise ValueError(f"Invalid port: {args_chroma.port}")
+
+    # Construct ChromaDB client using provided connection parameters
+    client = make_chromaDB_client(
+        host=args_chroma.host,
+        port=args_chroma.port,
+        use_ssl=args_chroma.use_ssl,
+        access_key=args_chroma.access_key,
+        secret_key=args_chroma.secret_key,
+        bearer_token=args_chroma.bearer_token,
+        timeout=args_chroma.timeout,
+    )
+
+    return client
+
+def exploitation(chroma_client, s3_client):
+    """
+    image_collection = create_collection(chroma_client,"images")
+    image_model, image_preprocess,image_device = get_image_model()
+    images_to_embeddings(s3_client,"trusted-zone",image_collection,image_preprocess,image_model,image_device,"images/")
+    """
+    video_collection = create_colection(chroma_client,"videos")
+    video_model, video_processors,video_device = get_video_model()
+    videos_to_embeddings(s3_client,"trusted-zone","videos/",video_collection,video_processors,video_model,video_device)
+
 
 if __name__ == "__main__":
-    s3_client = connect_minio()
-    #landing_init(s3_client)
+    args = parse_all_args()
+    s3_client = connect_minio(args.minio)
+    #landing_init(s3_client,args.landing)
     #temporal_landing_init(s3_client)
     #persistent_landing_init(s3_client)
     #formatted_init(s3_client)
     #formatted(s3_client)
     #trusted_init(s3_client)
-    trusted(s3_client)
+    #trusted(s3_client)
+    chroma_client = connect_chromaDB(args.chroma)
+    exploitation(chroma_client,s3_client)
