@@ -5,12 +5,9 @@ import io
 import os
 import time
 
-import boto3
 import cv2
-import numpy as np
 import pandas as pd
 import seaborn as sns
-from PIL import Image
 import matplotlib.pyplot as plt
 import logging
 
@@ -113,10 +110,10 @@ def get_data_videos(client, bucket, prefix=""):
         elapsed, summary["scanned"], summary["succeeded"],
         summary["skipped"], summary["failed"]
     )
-    return data,summary
+    return data
 
 
-def generate_data_quality_videos(df):
+def generate_data_quality_videos(df, name):
     """
     Generate an automated video data quality report (HTML + charts).
 
@@ -137,7 +134,9 @@ def generate_data_quality_videos(df):
                                                 - 'mode'          : str   – Color mode (e.g., RGB, RGBA, L, CMYK).
                                                 - 'channels'      : int   - number of color channels in the image
                                                 - 'duplicated'    : bool  - identifiers for duplicate detection.
+    name            : str                   - The name of report
     """
+
 
 
     num_videos = df.shape[0]
@@ -243,7 +242,8 @@ def generate_data_quality_videos(df):
     os.makedirs("reports", exist_ok=True)
 
     # Build output path under reports/
-    out_path = os.path.join("reports", "video_quality_report.html")
+    report_name = "video_quality_report_" + name + ".html"
+    out_path = os.path.join("reports", report_name)
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -266,11 +266,11 @@ def preprocess_video(client, bucket, prefix="", target_fps = 1, target_size=(224
     target_fps      : int                   - Target FPS (int).
     target_size     : tuple[int, int]       - optional Target spatial resolution
     """
-    data,summary = get_data_videos(client, bucket, prefix=prefix)
+    data = get_data_videos(client, bucket, prefix=prefix)
     df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
     if df.empty:
         raise ValueError("No image data to report.")
-    generate_data_quality_videos(df)
+    generate_data_quality_videos(df,"before_clean")
 
     summary = {
         "total_rows": int(df.shape[0]),
@@ -409,3 +409,9 @@ def preprocess_video(client, bucket, prefix="", target_fps = 1, target_size=(224
     )
     os.remove(in_path)
     os.remove(out_path)
+
+    data = get_data_videos(client, bucket, prefix=prefix)
+    df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
+    if df.empty:
+        raise ValueError("No image data to report.")
+    generate_data_quality_videos(df,"before_clean")

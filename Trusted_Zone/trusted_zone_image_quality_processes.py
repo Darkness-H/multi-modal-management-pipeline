@@ -1,4 +1,3 @@
-#%%
 # Importing useful dependencies
 import base64
 import io
@@ -105,7 +104,7 @@ def get_data_images(client, bucket, prefix=""):
     return data
 
 
-def generate_data_quality_images(df):
+def generate_data_quality_images(df, name):
     """
     Generate an automated image data quality report (HTML + charts).
 
@@ -208,9 +207,9 @@ def generate_data_quality_images(df):
 
     # Ensure output folder exists in the current working directory
     os.makedirs("reports", exist_ok=True)
-
+    report_name = "image_quality_report_" + name + ".html"
     # Build output path under reports/
-    out_path = os.path.join("reports", "image_quality_report.html")
+    out_path = os.path.join("reports", report_name)
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -237,7 +236,7 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
     df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
     if df.empty:
         raise ValueError("No image data to report.")
-    generate_data_quality_images(df)
+    generate_data_quality_images(df,"before_clean")
 
     summary = {
         "total_rows": int(df.shape[0]),
@@ -337,5 +336,12 @@ def preprocess_image(client ,bucket, prefix="", target_size=(512, 512)):
         summary["normalized"],
         summary["skipped_errors"],
     )
+
+    data = get_data_images(client, bucket, prefix=prefix)
+    df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
+    if df.empty:
+        raise ValueError("No image data to report.")
+    generate_data_quality_images(df,"after_clean")
+
 
 
