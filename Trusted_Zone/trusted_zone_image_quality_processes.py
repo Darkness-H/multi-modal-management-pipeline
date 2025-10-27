@@ -180,7 +180,7 @@ def generate_data_quality_images(df, name):
         </style>
     </head>
     <body>
-        <h1>📊 Image Data Quality Report</h1>
+        <h1>Image Data Quality Report</h1>
         <p>Generated on: <b>{now}</b></p>
         <hr>
         <h2>Summary</h2>

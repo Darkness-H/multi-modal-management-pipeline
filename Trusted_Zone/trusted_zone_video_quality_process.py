@@ -200,7 +200,7 @@ def generate_data_quality_videos(df, name):
     <html>
     <head>
         <meta charset="utf-8">
-        <title>Image Data Quality Report</title>
+        <title>Video Data Quality Report</title>
         <style>
             body {{ font-family: Arial, sans-serif; padding: 20px; }}
             h1 {{ color: #333; }}
@@ -209,7 +209,7 @@ def generate_data_quality_videos(df, name):
         </style>
     </head>
     <body>
-        <h1>📊 Image Data Quality Report</h1>
+        <h1> Video Data Quality Report</h1>
         <p>Generated on: <b>{now}</b></p>
         <hr>
         <h2>Summary</h2>

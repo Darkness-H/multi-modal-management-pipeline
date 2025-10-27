@@ -3,11 +3,10 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, List
 
-from transformers.models.auto.video_processing_auto import video_processors
 
 from utils.bucket_utils import replicate_bucket,ensure_bucket,ensure_prefixes
 from utils.make_conecction import make_s3_client, make_chromaDB_client
-from utils.colection_utils import create_colection
+from utils.collection_utils import create_chroma_collection
 
 from Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
 from Landing_Zone.persistent_landing import move_files
@@ -18,9 +17,16 @@ from Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_m
 
 from Trusted_Zone.trusted_zone_image_quality_processes import preprocess_image
 from Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
+from Trusted_Zone.trusted_zone_text_quality_processes import clean_text
 
 from exploitation_zone.exploitation_zone_image_embeddings import images_to_embeddings, get_image_model
+from exploitation_zone.exploitation_zone_text_embeddings import get_text_model, texts_to_embeddings
+from exploitation_zone.utils_exploitation.getter import get_text, get_image, get_video
 from exploitation_zone.exploitation_zone_video_embeddings import videos_to_embeddings, get_video_model
+from exploitation_zone.embeddings_combination import combining_image_text
+
+from multi_modal_task.task1 import get_similar_text, get_similar_image, get_similar_video
+
 
 # ---- Dataclasses to carry structured args ----
 @dataclass
@@ -287,12 +293,19 @@ def trusted_init(client):
 
 def trusted(client):
     """
+    The function executes the end-to-end data hygiene/normalization flows for the bucket.
+
+    Each sub-pipeline is responsible for generating its own quality report,
+    removing low-quality/duplicate assets, normalizing content (e.g., RGB resize
+    for images, decoding/probing for videos, cleaning/translation/chunking for
+    text), and emitting progress/summary logs.
 
     client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
     """
 
-    #preprocess_image(client, "trusted-zone","images/")
+    preprocess_image(client, "trusted-zone","images/")
     preprocess_video(client, "trusted-zone","videos/")
+    clean_text(client, "trusted-zone","texts/")
 
 def connect_chromaDB(args_chroma):
     """
@@ -321,14 +334,39 @@ def connect_chromaDB(args_chroma):
     return client
 
 def exploitation(chroma_client, s3_client):
-    """
-    image_collection = create_collection(chroma_client,"images")
-    image_model, image_preprocess,image_device = get_image_model()
-    images_to_embeddings(s3_client,"trusted-zone",image_collection,image_preprocess,image_model,image_device,"images/")
-    """
-    video_collection = create_colection(chroma_client,"videos")
-    video_model, video_processors,video_device = get_video_model()
-    videos_to_embeddings(s3_client,"trusted-zone","videos/",video_collection,video_processors,video_model,video_device)
+    #image_collection = create_chroma_collection(chroma_client, "images")
+    #image_model, image_preprocess,image_device = get_image_model()
+    #images_to_embeddings(s3_client,"trusted-zone",image_collection,image_preprocess,image_model,image_device,"images/")
+
+    #video_collection = create_chroma_collection(chroma_client,"videos")
+    #video_model, video_processors,video_device = get_video_model()
+    #videos_to_embeddings(s3_client,"trusted-zone","videos/",video_collection,video_processors,video_model,video_device)
+
+    text_collection = create_chroma_collection(chroma_client, "texts")
+    tokenizer, text_model,  text_device = get_text_model()
+    texts_to_embeddings(s3_client,"trusted-zone",text_collection,tokenizer,text_model,text_device,"texts/")
+
+    image_text_collection = create_chroma_collection(chroma_client, "images_texts")
+    image_collection = create_chroma_collection(chroma_client, "images")
+    combining_image_text(image_collection,text_collection,image_text_collection)
+
+
+
+def multi_modal_task_execution(chroma_client, s3_client):
+    example_text = get_text(s3_client,"trusted-zone", "texts/text_1761318441201.txt")
+    text_collection = create_chroma_collection(chroma_client, "texts")
+    result1 = get_similar_text(s3_client,text_collection,example_text)
+    text_example_2 = "Undertale is a unique role-playing game where players navigate a world filled with quirky monsters. Choices matter: you can fight, flee, or befriend enemies, affecting the story and multiple endings. The game combines retro-style graphics, witty humor, and emotional storytelling, offering a deep, player-driven experience that challenges traditional RPG mechanics."
+    result2 = get_similar_text(s3_client,text_collection,text_example_2)
+
+    image_collection = create_chroma_collection(chroma_client, "images")
+    example_image = get_image(s3_client,"trusted-zone","images/image_1761318414668.png")
+    result3 = get_similar_image(s3_client,image_collection,example_image)
+
+    video_collection = create_chroma_collection(chroma_client, "videos")
+    example_video = get_video(s3_client, "trusted-zone", "videos/video_1761318468194.mp4")
+    result3 = get_similar_video(s3_client, video_collection, example_video)
+
 
 
 if __name__ == "__main__":
@@ -342,4 +380,6 @@ if __name__ == "__main__":
     #trusted_init(s3_client)
     #trusted(s3_client)
     chroma_client = connect_chromaDB(args.chroma)
-    exploitation(chroma_client,s3_client)
+
+    #exploitation(chroma_client,s3_client)
+    multi_modal_task_execution(chroma_client,s3_client)

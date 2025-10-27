@@ -2,7 +2,6 @@
 import logging
 import time
 from typing import Iterable
-import boto3
 from botocore.exceptions import ClientError
 
 

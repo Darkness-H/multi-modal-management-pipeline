@@ -289,17 +289,19 @@ def generate_quality_report(df: pd.DataFrame, name):
     ax.set_ylabel("Files")
     plots["printable_ratio_dist"] = fig_to_base64(fig)
 
-    plt.subplot(1, 3, 2)
-    plt.hist(df["norm_changed_ratio"], bins=20, color='orange')
-    plt.title("Unicode Normalization Change Ratio")
-    plt.xlabel("norm_changed_ratio")
-    plt.ylabel("Files")
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.histplot(df["norm_changed_ratio"], bins=20, ax=ax)
+    ax.set_title("Unicode Normalization Change Ratio")
+    ax.set_xlabel("norm_changed_ratio")
+    ax.set_ylabel("Files")
+    plots["norm_changed_ratio_dist"] = fig_to_base64(fig)
 
-    plt.subplot(1, 3, 3)
-    sns.boxplot(x=df["avg_line_len"], color='lightblue')
-    plt.title("Average Line Length (Boxplot)")
-    plt.tight_layout()
-    plt.show()
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.boxplot(df["avg_line_len"], color='lightblue', ax=ax)
+    ax.set_title("Average Line Length")
+    fig.tight_layout()
+    plots["avg_line_len_dist"] = fig_to_base64(fig)
 
     # ----  Language probability distribution ----
     all_langs = {}
@@ -307,20 +309,20 @@ def generate_quality_report(df: pd.DataFrame, name):
         for lang, prob in d.items():
             all_langs[lang] = all_langs.get(lang, 0) + prob
     if all_langs:
-        plt.figure(figsize=(6, 4))
-        pd.Series(all_langs).sort_values(ascending=True).plot.barh(
-            title="Detected Language Probability Sum", color='teal'
-        )
-        plt.xlabel("Summed Probability Across Files")
-        plt.show()
+        ser = pd.Series(all_langs).sort_values(ascending=True)
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ser.plot(kind="barh", color="teal", ax=ax)
+        ax.set_title("Detected Language Probability Sum")
+        ax.set_xlabel("Summed Probability Across Files")
+        plots["lang_prob_sum"] = fig_to_base64(fig)
 
     # ----  PII frequency summary ----
     pii_counts = pd.DataFrame(df["pii_hits"].tolist()).sum().sort_values(ascending=False)
-    if pii_counts.sum() > 0:
-        plt.figure(figsize=(5, 3))
-        pii_counts.plot.bar(title="Detected PII Counts", color='salmon')
-        plt.ylabel("Occurrences")
-        plt.show()
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    pii_counts.plot.bar(color='salmon', ax = ax)
+    ax.set_ylabel("Occurrences")
+    plots["Occurrences"] = fig_to_base64(fig)
 
     # ----  Correlation heatmap between quality issues ----
     issue_flags = pd.DataFrame({
@@ -333,10 +335,10 @@ def generate_quality_report(df: pd.DataFrame, name):
     }).fillna(0).astype(int)
 
     corr = issue_flags.corr()
-    plt.figure(figsize=(6, 5))
-    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
-    plt.title("Correlation Between Quality Issues")
-    plt.show()
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax = ax)
+    ax.set_title("Correlation Between Quality Issues")
+    plots["Correlation"] = fig_to_base64(fig)
 
     # ----   summary overview ----
 
@@ -360,7 +362,7 @@ def generate_quality_report(df: pd.DataFrame, name):
         </style>
     </head>
     <body>
-        <h1>📊 Image Data Quality Report</h1>
+        <h1>Text Data Quality Report</h1>
         <p>Generated on: <b>{now}</b></p>
         <hr>
         <h2>Summary</h2>
@@ -369,14 +371,18 @@ def generate_quality_report(df: pd.DataFrame, name):
         {desc_html}
         <hr>
         <h2>Distributions</h2>
-        <h3>File Size Distribution</h3>
+        <h3>Printable ratio Distribution</h3>
         <img src="data:text/png;base64,{plots["printable_ratio_dist"]}">
-        <h3>Width vs Height</h3>
-        <img src="data:text/png;base64,{plots["width_height"]}">
-        <h3>Aspect Ratio Distribution</h3>
-        <img src="data:text/png;base64,{plots["aspect_ratio"]}">
+        <h3>Norm changed ratio distribution</h3>
+        <img src="data:text/png;base64,{plots["norm_changed_ratio_dist"]}">
+        <h3>Average line length distribution</h3>
+        <img src="data:text/png;base64,{plots["avg_line_len_dist"]}">
+        <h3>Language probability distribution</h3>
+        <img src="data:text/png;base64,{plots["lang_prob_sum"]}">
         <h2>PII frequency summary</h2>
+        <img src="data:text/png;base64,{plots["Occurrences"]}">
         <h2>Correlation heatmap between quality issues</h2>
+        <img src="data:text/png;base64,{plots["Correlation"]}">
         <h2>summary overview</h2>
         <div class="metric">Total files analyzed: <b>{len(df)}</b></div>
         <div class="metric">Files with potential issues: <b>{int(potential_issues)}</b></div>
@@ -386,7 +392,7 @@ def generate_quality_report(df: pd.DataFrame, name):
 
     # Ensure output folder exists in the current working directory
     os.makedirs("reports", exist_ok=True)
-    report_name = "image_quality_report_" + name + ".html"
+    report_name = "text_quality_report_" + name + ".html"
     # Build output path under reports/
     out_path = os.path.join("reports", report_name)
 
@@ -635,11 +641,11 @@ def clean_text(client,bucket,prefix , max_tokens=512):
 
     """
 
-    data = extract_datas(client, bucket, prefix,"before_clean")
+    data = extract_datas(client, bucket, prefix)
     df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
     if df.empty:
         raise ValueError("No text data to report.")
-    generate_quality_report(df)
+    generate_quality_report(df,"before_clean")
     tokenizer = tiktoken.get_encoding("cl100k_base")
     summary = {
         "total_rows": int(df.shape[0]),
@@ -673,7 +679,7 @@ def clean_text(client,bucket,prefix , max_tokens=512):
                 continue
 
             # get text
-            text = get_text("trusted-zone", row.key)
+            text = get_text(client,bucket, row.key)
             # basic clean and get text
             text = basic_clean(text)
 
@@ -688,7 +694,7 @@ def clean_text(client,bucket,prefix , max_tokens=512):
 
             # Split the full text by blank lines into paragraphs (preserve only non-empty ones)
             paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-            for i in range(0, len(row.paragraph_token_list)):
+            for i in range(0, len(paragraphs )):
                 # Translate before token-based chunking:
                 # doing translation first avoids re-breaking chunks after token counts change due to translation.
                 if should_translate:
@@ -718,11 +724,10 @@ def clean_text(client,bucket,prefix , max_tokens=512):
 
                 # Token-length control:
                 # If the original paragraph's token count exceeded `max_tokens`, chunk the (possibly translated) paragraph.
-                if (row.paragraph_token_list[i] > max_tokens):
-                    chunks = chunk_text_with_token_budget(paragraphs[i], tokenizer, max_tokens)
-                    # Join chunks with double newlines to preserve a visual boundary between slices
-                    full_text = "\n\n".join(chunk["text"].strip() for chunk in chunks if chunk["text"].strip())
-                    paragraphs[i] = full_text
+                chunks = chunk_text_with_token_budget(paragraphs[i], tokenizer, max_tokens)
+                # Join chunks with double newlines to preserve a visual boundary between slices
+                full_text = "\n\n".join(chunk["text"].strip() for chunk in chunks if chunk["text"].strip())
+                paragraphs[i] = full_text
 
             # Reassemble the full text by joining paragraphs with blank lines
             text = "\n\n".join(paragraphs)
@@ -759,23 +764,23 @@ def clean_text(client,bucket,prefix , max_tokens=512):
             logger.error(f"Failed to normalize {row.key}: {e}")
             continue
 
-        elapsed = time.perf_counter() - t0
-        logger.info(
-            "Text preprocessing completed in %.2fs - total_text=%d, empty_deleted=%d, duplicates_deleted=%d, unreliable_deleted=%d "
-            "normalized=%d, errors=%d, translated=%d",
-            elapsed,
-            summary["total_rows"],
-            summary["empty_deleted"],
-            summary["duplicates_deleted"],
-            summary["unreliable_deleted"],
-            summary["normalized"],
-            summary["skipped_errors"],
-            summary["translated"],
-        )
+    elapsed = time.perf_counter() - t0
+    logger.info(
+        "Text preprocessing completed in %.2fs - total_text=%d, empty_deleted=%d, duplicates_deleted=%d, unreliable_deleted=%d "
+        "normalized=%d, errors=%d, translated=%d",
+        elapsed,
+        summary["total_rows"],
+        summary["empty_deleted"],
+        summary["duplicates_deleted"],
+        summary["unreliable_deleted"],
+        summary["normalized"],
+        summary["skipped_errors"],
+        summary["translated"],
+    )
 
-        data = extract_datas(client, bucket, prefix)
-        df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
-        if df.empty:
-            raise ValueError("No text data to report.")
-        generate_quality_report(df,"after_clean")
+    data = extract_datas(client, bucket, prefix)
+    df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
+    if df.empty:
+        raise ValueError("No text data to report.")
+    generate_quality_report(df,"after_clean")
 
