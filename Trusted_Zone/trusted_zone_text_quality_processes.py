@@ -1,5 +1,7 @@
 # Importing useful dependencies
 import base64
+import os
+from datetime import datetime
 import io
 import logging
 import re
@@ -243,7 +245,12 @@ def extract_datas(client, bucket, prefix=""):
 
 def generate_quality_report(df: pd.DataFrame, name):
     """
-    Generate and display an interactive data quality report for Trusted Zone text data.
+    Generate an automated data quality report (HTML + interactive widgets) for
+    Trusted Zone text datasets.
+
+    The function profiles a text corpus stored in the Trusted Zone and produces
+    an interactive report with summary metrics, descriptive statistics, and
+    diagnostics for common data-quality issues.
     """
     # ---- Validate input ----
     if df.empty:
@@ -331,16 +338,62 @@ def generate_quality_report(df: pd.DataFrame, name):
     plt.title("Correlation Between Quality Issues")
     plt.show()
 
-    # ----  Print summary overview ----
-    print("\n Data Quality Report generated successfully.\n")
-    print(f"Total files analyzed: {len(df)}")
+    # ----   summary overview ----
+
     low_printable = (df["printable_ratio"].fillna(0) < 0.9)
     high_norm = (df["norm_changed_ratio"].fillna(0) > 0.3)
     pii_detected = df["pii_detected"].fillna(False).astype(bool)
 
     potential_issues = (low_printable | high_norm | pii_detected).sum()
 
-    print(f"Files with potential issues: {int(potential_issues)}")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    html = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Text Data Quality Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; padding: 20px; }}
+            h1 {{ color: #333; }}
+            img {{ max-width: 700px; border: 1px solid #ddd; border-radius: 4px; margin: 10px 0; }}
+            .metric {{ margin-bottom: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>📊 Image Data Quality Report</h1>
+        <p>Generated on: <b>{now}</b></p>
+        <hr>
+        <h2>Summary</h2>
+        {summary_df_html}
+        <h2>DataFrame describe()</h2>
+        {desc_html}
+        <hr>
+        <h2>Distributions</h2>
+        <h3>File Size Distribution</h3>
+        <img src="data:text/png;base64,{plots["printable_ratio_dist"]}">
+        <h3>Width vs Height</h3>
+        <img src="data:text/png;base64,{plots["width_height"]}">
+        <h3>Aspect Ratio Distribution</h3>
+        <img src="data:text/png;base64,{plots["aspect_ratio"]}">
+        <h2>PII frequency summary</h2>
+        <h2>Correlation heatmap between quality issues</h2>
+        <h2>summary overview</h2>
+        <div class="metric">Total files analyzed: <b>{len(df)}</b></div>
+        <div class="metric">Files with potential issues: <b>{int(potential_issues)}</b></div>
+    </body>
+    </html>
+    """
+
+    # Ensure output folder exists in the current working directory
+    os.makedirs("reports", exist_ok=True)
+    report_name = "image_quality_report_" + name + ".html"
+    # Build output path under reports/
+    out_path = os.path.join("reports", report_name)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    logger.info("Report saved to %s", out_path)
 
 
 WS_RE = re.compile(r"[ \t\u00A0\u2000-\u200B\u3000]+")
@@ -471,6 +524,27 @@ def chunk_text_with_token_budget(
         stride: int = 64,
         reserve_special: int = 2,  # reserve tokens for [CLS]/[SEP] or similar
 ) -> List[Dict]:
+    """
+    Split a long text into token-budgeted chunks with optional sliding overlap.
+
+    The algorithm greedily packs sentence by sentence until the remaining budget
+    would be exceeded. Sentences that individually exceed the budget are split
+    by a sliding window over token IDs with an overlap of `stride` tokens.
+    text                : str       -   Raw input text to be chunked.
+    tokenizer           : object    -   A tokenizer exposing `encode(str) -> List[int]` and `decode(List[int]) -> str`.
+                                        NOTE: Prefer configuring it so that `encode` excludes special tokens
+                                        (e.g., `add_special_tokens=False`) because `reserve_special` is intended
+                                        to be added later by the caller/model.
+    max_tokens          : int       -   default 512
+                                        Total token budget per chunk INCLUDING model special tokens. The effective
+                                        budget for content is `max_tokens - reserve_special`.
+    stride              : int       -   default 64
+                                        Overlap size (in tokens) between adjacent windows when splitting a single
+                                        overlong sentence. Ignored for normal (multi-sentence) chunks.
+    reserve_special     : int       -   default 2
+                                        Number of tokens to reserve for model-added specials ([CLS]/[SEP], BOS/EOS, etc.).
+
+    """
     # The actual available token budget after reserving special tokens
     budget = max_tokens - reserve_special
     assert budget > 0, "max_tokens is too small; cannot reserve special tokens"
@@ -541,96 +615,163 @@ def chunk_text_with_token_budget(
 
 
 def clean_text(client,bucket,prefix , max_tokens=512):
-    bucket = "trusted-zone"
+    """
+    Clean and normalize Trusted Zone text data stored in S3/MinIO.
+
+    The function performs an end-to-end cleaning pipeline on all text files within
+    the specified `prefix` of a given bucket. It includes:
+        - Text extraction and initial quality profiling
+        - Removal of low-quality or corrupted records
+        - Text normalization and language unification (translation to English if needed)
+        - Token-based chunking for long documents
+        - Post-clean validation and secondary reporting
+
+    client          : obj   - S3-compatible client (e.g., boto3.client("s3")).
+    bucket          : str   - Target S3/MinIO bucket.
+    prefix          : str   - Optional key prefix (acts like a folder path).
+    max_tokens      : int   -   default 512
+                                Total token budget per chunk INCLUDING model special tokens. The effective
+                                budget for content is `max_tokens - reserve_special`.
+
+    """
+
     data = extract_datas(client, bucket, prefix,"before_clean")
     df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
     if df.empty:
         raise ValueError("No text data to report.")
     generate_quality_report(df)
     tokenizer = tiktoken.get_encoding("cl100k_base")
+    summary = {
+        "total_rows": int(df.shape[0]),
+        "empty_deleted": 0,
+        "duplicates_deleted": 0,
+        "unreliable_deleted": 0,
+        "normalized": 0,
+        "skipped_errors": 0,
+        "translated": 0,
+    }
+    t0 = time.perf_counter()
+
+    logger.info(
+        "Starting text preprocessing: rows=%d, max tokens=%d, bucket=%s, prefix=%s",
+        summary["total_rows"], max_tokens, bucket, prefix
+    )
     for row in df.itertuples(index=False):
+        try:
 
-        # check text need remove or clean
-        if row.empty or row.too_short or row.printable_ratio < 0.9 or row.duplicated:
-            client.delete_object(Bucket=bucket, Key=row.key)
-            continue
-        # get text
-        text = get_text("trusted-zone", row.key)
-        # basic clean and get text
-        text = basic_clean(text)
-
-        # Language gate: decide whether this document likely needs translation to English
-        # Uses overall English probability from row.language_probs; if below 0.85, enable translation.
-        should_translate = False
-        prob = row.language_probs.get("en", 0)
-        if prob < 0.85:
-            should_translate = True
-
-        # Split the full text by blank lines into paragraphs (preserve only non-empty ones)
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        for i in range(0, len(row.paragraph_token_list)):
-            # Translate before token-based chunking:
-            # doing translation first avoids re-breaking chunks after token counts change due to translation.
-            if should_translate:
-                paragraph = paragraphs[i]
-                # Detect the source language at the paragraph level (more precise than doc-level for mixed content)
-                source = detect(paragraph)
-
-                # If this paragraph is not English, attempt paragraph-level translation first
-                if (source != "en"):
-                    # Primary attempt: translate the whole paragraph
-                    result, sucess = to_english(paragraph, source)
-
-                    # Fallback: if paragraph translation fails, translate sentence-by-sentence and then aggregate back
-                    if not sucess:
-                        senteces = split_into_sentences(paragraph)
-                        translated_sentences = []
-                        for sent in senteces:
-                            source = detect(sent)
-                            translated = to_english(sent, source, sentence=True)
-                            translated_sentences.append(translated.strip())
-
-                        # Reassemble the paragraph from translated sentences (simple space join)
-                        result = ".".join(s for s in translated_sentences if s)
-
-                    # Replace the original paragraph with the translated result
-                    paragraphs[i] = result
-
-            # Token-length control:
-            # If the original paragraph's token count exceeded `max_tokens`, chunk the (possibly translated) paragraph.
-            if (row.paragraph_token_list[i] > max_tokens):
-                chunks = chunk_text_with_token_budget(paragraphs[i], tokenizer, max_tokens)
-                # Join chunks with double newlines to preserve a visual boundary between slices
-                full_text = "\n\n".join(chunk["text"].strip() for chunk in chunks if chunk["text"].strip())
-                paragraphs[i] = full_text
-
-        # Reassemble the full text by joining paragraphs with blank lines
-        text = "\n\n".join(paragraphs)
-
-        # Post-translation validation:
-        # Check language again to verify the text is predominantly English and not mixed-language.
-        language_probs, mixed_languages = language_check(text)
-
-        # Last-resort cleanup:
-        # If still mixed-language or English probability is too low, try textual fixes and deep cleaning,
-        # then re-check. If still not acceptable, delete the object.
-        # (Typical causes: rare code fragments, heavy non-ASCII characters, odd punctuation.)
-        if (mixed_languages or language_probs.get("en", 0) < 0.85):
-            fixed = fix_text(text)
-            text = deep_clean(fixed)
-            language_probs, mixed_languages = language_check(text)
-            # Final rejection if it still fails the language criteria
-            if (mixed_languages or language_probs.get("en", 0) < 0.85):
+            # check text need remove or clean
+            if row.empty or row.too_short or row.printable_ratio < 0.9:
                 client.delete_object(Bucket=bucket, Key=row.key)
+                summary["empty_deleted"] += 1
+                logger.warning(f"Removed empty/short text: {row.key}")
                 continue
-        # accept text
-        client.put_object(
-            Bucket=bucket,
-            Key=row.key,  # Make sure the file key (path) is correct
-            Body=text.encode('utf-8'),
-            ContentType="text/plain"
+
+            if row.duplicated:
+                client.delete_object(Bucket=bucket, Key=row.key)
+                summary["duplicates_deleted"] += 1
+                logger.warning(f"Removed duplicate text: {row.key}")
+                continue
+
+            # get text
+            text = get_text("trusted-zone", row.key)
+            # basic clean and get text
+            text = basic_clean(text)
+
+            # Language gate: decide whether this document likely needs translation to English
+            # Uses overall English probability from row.language_probs; if below 0.85, enable translation.
+            should_translate = False
+            prob = row.language_probs.get("en", 0)
+            if prob < 0.85:
+                should_translate = True
+                summary["translated"] += 1
+                logger.debug(f"Translating {row.key} (English prob={prob:.2f})")
+
+            # Split the full text by blank lines into paragraphs (preserve only non-empty ones)
+            paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+            for i in range(0, len(row.paragraph_token_list)):
+                # Translate before token-based chunking:
+                # doing translation first avoids re-breaking chunks after token counts change due to translation.
+                if should_translate:
+                    paragraph = paragraphs[i]
+                    # Detect the source language at the paragraph level (more precise than doc-level for mixed content)
+                    source = detect(paragraph)
+
+                    # If this paragraph is not English, attempt paragraph-level translation first
+                    if (source != "en"):
+                        # Primary attempt: translate the whole paragraph
+                        result, sucess = to_english(paragraph, source)
+
+                        # Fallback: if paragraph translation fails, translate sentence-by-sentence and then aggregate back
+                        if not sucess:
+                            senteces = split_into_sentences(paragraph)
+                            translated_sentences = []
+                            for sent in senteces:
+                                source = detect(sent)
+                                translated = to_english(sent, source, sentence=True)
+                                translated_sentences.append(translated.strip())
+
+                            # Reassemble the paragraph from translated sentences (simple space join)
+                            result = ".".join(s for s in translated_sentences if s)
+
+                        # Replace the original paragraph with the translated result
+                        paragraphs[i] = result
+
+                # Token-length control:
+                # If the original paragraph's token count exceeded `max_tokens`, chunk the (possibly translated) paragraph.
+                if (row.paragraph_token_list[i] > max_tokens):
+                    chunks = chunk_text_with_token_budget(paragraphs[i], tokenizer, max_tokens)
+                    # Join chunks with double newlines to preserve a visual boundary between slices
+                    full_text = "\n\n".join(chunk["text"].strip() for chunk in chunks if chunk["text"].strip())
+                    paragraphs[i] = full_text
+
+            # Reassemble the full text by joining paragraphs with blank lines
+            text = "\n\n".join(paragraphs)
+
+            # Post-translation validation:
+            # Check language again to verify the text is predominantly English and not mixed-language.
+            language_probs, mixed_languages = language_check(text)
+
+            # Last-resort cleanup:
+            # If still mixed-language or English probability is too low, try textual fixes and deep cleaning,
+            # then re-check. If still not acceptable, delete the object.
+            # (Typical causes: rare code fragments, heavy non-ASCII characters, odd punctuation.)
+            if (mixed_languages or language_probs.get("en", 0) < 0.85):
+                fixed = fix_text(text)
+                text = deep_clean(fixed)
+                language_probs, mixed_languages = language_check(text)
+                # Final rejection if it still fails the language criteria
+                if (mixed_languages or language_probs.get("en", 0) < 0.85):
+                    summary["unreliable_deleted"] += 1
+                    client.delete_object(Bucket=bucket, Key=row.key)
+                    continue
+            # accept text
+            client.put_object(
+                Bucket=bucket,
+                Key=row.key,  # Make sure the file key (path) is correct
+                Body=text.encode('utf-8'),
+                ContentType="text/plain"
+            )
+            summary["normalized"] += 1
+            logger.debug(f"Normalized: {row.key}")
+
+        except Exception as e:
+            summary["skipped_errors"] += 1
+            logger.error(f"Failed to normalize {row.key}: {e}")
+            continue
+
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            "Text preprocessing completed in %.2fs - total_text=%d, empty_deleted=%d, duplicates_deleted=%d, unreliable_deleted=%d "
+            "normalized=%d, errors=%d, translated=%d",
+            elapsed,
+            summary["total_rows"],
+            summary["empty_deleted"],
+            summary["duplicates_deleted"],
+            summary["unreliable_deleted"],
+            summary["normalized"],
+            summary["skipped_errors"],
+            summary["translated"],
         )
-        print(f"Normalized: {row.key}")
 
         data = extract_datas(client, bucket, prefix)
         df = pd.DataFrame(data) if not isinstance(data, pd.DataFrame) else data.copy()
