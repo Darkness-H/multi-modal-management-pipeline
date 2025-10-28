@@ -1,6 +1,6 @@
 # Multi-Modal Management Pipeline
 
-The aim of this school project is to develop a pipeline that simulates an end-to-end workflow, from data ingestion and preprocessing to structured management in layered zones, ultimately supporting advanced tasks such as similarity searches and cross-modal generation using pre-trained models.
+The aim of this school project for the subject called ADSDB (ALGORITHMS, DATA STRUCTURES AND DATABASES) is to develop a pipeline that simulates an end-to-end workflow, from data ingestion and preprocessing to structured management in layered zones, ultimately supporting advanced tasks such as similarity searches and cross-modal generation using pre-trained models.
 
 ---
 
@@ -58,10 +58,21 @@ docker run -d --name chroma \
 
 ### Trusted Zone
 - `trusted_zone.ipynb`  
-- `trusted_zone_image_quality_processes.ipynb`  
+- `trusted_zone_text_quality_processes.ipynb`
+- `trusted_zone_image_quality_processes.ipynb`
+- `trusted_zone_video_quality_processes.ipynb` 
 
 ### Exploitation Zone
-- `exploitation_zone_image_embeddings.ipynb`  
+- `exploitation_zone_text_embeddings.ipynb`
+- `exploitation_zone_image_embeddings.ipynb`
+- `exploitation_zone_video_embeddings.ipynb`
+- `text_image_embeddings.ipynb`
+- `text_image_video_embeddings.ipynb`
+
+### Multi Modal Tasks
+- `task_1.ipynb`
+- `task_2.ipynb`
+- `task_3.ipynb`
 
 > Follow this order so that data flows correctly from ingestion to exploitation while maintaining the layered structure.
 
