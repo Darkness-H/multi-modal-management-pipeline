@@ -27,7 +27,7 @@ def load_huggingface_dataset(dataset_id: str, split: str, cache_dir: str | None)
     return ds
 
 
-def upload_strings_separately(bucket_name, client, strings, path="temporal-landing/", prefix="text", limit: int = 1000, offset=1):
+def upload_strings_separately(bucket_name, client, strings, path="temporal-landing/", prefix="text", limit = None, offset=1):
     """
     Upload each non-empty string as a separate text file to the bucket.
     Files are named: <path><prefix>_1.txt, <path><prefix>_2.txt, ...

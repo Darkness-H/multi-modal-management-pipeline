@@ -41,6 +41,10 @@ class LandingArgs:
     bucket: str
     prefixes: List[str]
 
+@dataclass
+class TemporalArgs:
+    limit: int
+    video_limit: int
 
 
 @dataclass
@@ -57,6 +61,7 @@ class ChromaArgs:
 class AllArgs:
     minio: MinioArgs
     landing: LandingArgs
+    temporal: TemporalArgs
     chroma: ChromaArgs
 
 
@@ -91,6 +96,11 @@ def parse_all_args() -> AllArgs:
     g_land.add_argument("--landing-prefixes", nargs="*", default=["temporal-landing/", "persistent-landing/"],
                         help="Folder-like prefixes to ensure under the bucket (trailing slash optional).")
 
+    # -------- Temporal Landing group --------
+    g_temp = parser.add_argument_group("Temporal Landing")
+    g_temp.add_argument("--limit", default=500,
+                        help= "maxim number of data extracted from one dataset -1 for no limit")
+    g_temp.add_argument("--video-limit", default=10, help="maxim number of video extracted from one dataset")
     # -------- ChromaDB group --------
     g_chroma = parser.add_argument_group("ChromaDB")
     g_chroma.add_argument("--chroma-host", default="localhost", help="Chroma server host.")
@@ -115,6 +125,11 @@ def parse_all_args() -> AllArgs:
         prefixes=list(ns.landing_prefixes or []),
     )
 
+    temporal = TemporalArgs(
+        limit=ns.limit,
+        video_limit=ns.video_limit,
+    )
+
     chroma = ChromaArgs(
         host=ns.chroma_host,
         port=ns.chroma_port,
@@ -125,7 +140,7 @@ def parse_all_args() -> AllArgs:
         timeout=ns.chroma_timeout,
     )
 
-    return AllArgs(minio=minio, landing=landing, chroma=chroma)
+    return AllArgs(minio=minio, landing=landing,temporal = temporal, chroma=chroma)
 
 
 def connect_minio(args_minio):
@@ -163,7 +178,7 @@ def landing_init(client, args_landing):
     ensure_prefixes(client, args_landing.bucket, args_landing.prefixes)
 
 
-def temporal_landing_init(client):
+def temporal_landing_init(client,args):
     """
     Initialize the temporal landing zone by loading datasets and storing them
     into the 'landing-zone/temporal-landing/' folder on MinIO.
@@ -176,19 +191,19 @@ def temporal_landing_init(client):
 
     """
     logger = logging.getLogger(__name__)
-    limit = 500
+    limit = args.limit
     split = "train"
     ds1_root ="FronkonGames/steam-games-dataset"
     ds2_root ="atalaydenknalbant/rawg-games-dataset"
     # -------- Temporal landing datasets --------
 
     # load data
-    ds1_raw = load_huggingface_dataset(ds1_root, split)
-    ds2_raw = load_huggingface_dataset(ds2_root, split)
+    ds1_raw = load_huggingface_dataset(ds1_root, split,None)
+    ds2_raw = load_huggingface_dataset(ds2_root, split, None)
 
 
     # We are going to use the first n obs from each dataset for testing purposes
-    if limit == None:
+    if limit == -1:
         ds1 = ds1_raw
         ds2 = ds2_raw
     else :
@@ -207,17 +222,17 @@ def temporal_landing_init(client):
     upload_strings_separately("landing-zone", client, strings =
                               ds1['About the game'] +
                               ds2['description'],
-                              path = "temporal-landing/", limit= 1000)
+                              path = "temporal-landing/")
 
     # Uploading image files (combining both datasets)
     upload_media_from_links("landing-zone", client, links=
     ds1['Header image'] + ds2['background_image'],  #ds1['Header image'] + ds2['background_image_additional']
-                            path="temporal-landing/", limit= 1000)  # If this process is taking too long, we can just skip the screeshots
+                            path="temporal-landing/")  # If this process is taking too long, we can just skip the screeshots
 
     # Uploading video files
     upload_media_from_links("landing-zone", client, links=
     ds1['Movies'],  # It's recommended to upload only a few videos due to MinioIO's storage size
-                            path="temporal-landing/", prefix="video", limit=10)  # Here we are only selecting the first 10 videos
+                            path="temporal-landing/", prefix="video", limit=args.video_limit)  # Here we are only selecting the first 10 videos
 
 def persistent_landing_init(client):
     """
@@ -334,13 +349,13 @@ def connect_chromaDB(args_chroma):
     return client
 
 def exploitation(chroma_client, s3_client):
-    #image_collection = create_chroma_collection(chroma_client, "images")
-    #image_model, image_preprocess,image_device = get_image_model()
-    #images_to_embeddings(s3_client,"trusted-zone",image_collection,image_preprocess,image_model,image_device,"images/")
+    image_collection = create_chroma_collection(chroma_client, "images")
+    image_model, image_preprocess,image_device = get_image_model()
+    images_to_embeddings(s3_client,"trusted-zone",image_collection,image_preprocess,image_model,image_device,"images/")
 
-    #video_collection = create_chroma_collection(chroma_client,"videos")
-    #video_model, video_processors,video_device = get_video_model()
-    #videos_to_embeddings(s3_client,"trusted-zone","videos/",video_collection,video_processors,video_model,video_device)
+    video_collection = create_chroma_collection(chroma_client,"videos")
+    video_model, video_processors,video_device = get_video_model()
+    videos_to_embeddings(s3_client,"trusted-zone","videos/",video_collection,video_processors,video_model,video_device)
 
     text_collection = create_chroma_collection(chroma_client, "texts")
     tokenizer, text_model,  text_device = get_text_model()
@@ -353,7 +368,7 @@ def exploitation(chroma_client, s3_client):
 
 
 def multi_modal_task_execution(chroma_client, s3_client):
-    """
+
     example_text = get_text(s3_client,"trusted-zone", "texts/text_1761318441201.txt")
     text_collection = create_chroma_collection(chroma_client, "texts")
     result1 = get_similar_text(s3_client,text_collection,example_text)
@@ -370,7 +385,7 @@ def multi_modal_task_execution(chroma_client, s3_client):
 
     image_text_collection = create_chroma_collection(chroma_client, "texts_images")
     result4 = find_k_similars_by_file(s3_client,image_text_collection,example_text,"text")
-    """
+
     image_text_collection = create_chroma_collection(chroma_client, "texts_images")
 
     example_image = get_image(s3_client,"trusted-zone","images/image_1761318414668.png")
@@ -382,14 +397,14 @@ def multi_modal_task_execution(chroma_client, s3_client):
 if __name__ == "__main__":
     args = parse_all_args()
     s3_client = connect_minio(args.minio)
-    #landing_init(s3_client,args.landing)
-    #temporal_landing_init(s3_client)
-    #persistent_landing_init(s3_client)
-    #formatted_init(s3_client)
-    #formatted(s3_client)
-    #trusted_init(s3_client)
-    #trusted(s3_client)
+    landing_init(s3_client,args.landing)
+    temporal_landing_init(s3_client,args.temporal)
+    persistent_landing_init(s3_client)
+    formatted_init(s3_client)
+    formatted(s3_client)
+    trusted_init(s3_client)
+    trusted(s3_client)
     chroma_client = connect_chromaDB(args.chroma)
 
-    #exploitation(chroma_client,s3_client)
+    exploitation(chroma_client,s3_client)
     multi_modal_task_execution(chroma_client,s3_client)
