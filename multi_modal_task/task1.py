@@ -1,15 +1,53 @@
 # Importing useful dependencies
+import math
+
+import cv2
 import open_clip
 import torch
 
 import numpy as np
 
-from IPython.display import display
+from matplotlib import pyplot as plt
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
 from exploitation_zone.utils_exploitation.getter import get_text, get_image,get_video
 from exploitation_zone.utils_exploitation.embeddings import embed_text,embed_image,embed_video
 
+
+def play_frames_opencv(frames, win_name="Frames"):
+    """
+    Play a folder of frame images (png/jpg/...) as a video using an OpenCV window.
+
+    Controls:
+      - Space: pause/resume
+      - q / Esc: quit
+      - +/- : speed down/up (change delay)
+    """
+    delay_ms = max(1, int(1000.0 / max(1e-6, 1)))  # ms per frame fps = 1 because we normalized videos in our dataset
+    paused = False
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)  # resizable window
+
+    for frame in frames:
+        # read one frame (bytes -> ndarray)
+
+        if frame is None:
+            continue
+
+        cv2.imshow(win_name, frame)
+
+        # keyboard control
+        t = 1 if paused else delay_ms
+        key = cv2.waitKey(t) & 0xFF
+        if key in (ord('q'), 27):   # q or Esc
+            break
+        elif key == 32:             # Space
+            paused = not paused
+        elif key == ord('+'):
+            delay_ms = max(1, delay_ms - 5)
+        elif key == ord('-'):
+            delay_ms = min(100, delay_ms + 5)
+
+    cv2.destroyAllWindows()
 
 
 def find_similar_files(s3_client, collection, query_emb: np.ndarray, top_k: int = 5):
@@ -26,20 +64,51 @@ def find_similar_files(s3_client, collection, query_emb: np.ndarray, top_k: int 
     ids = results.get("ids", [[]])[0]
     docs = results.get("documents", [[]])[0]
     dists = results.get("distances", [[]])[0]
-
+    res = []
     print(f"Top {top_k} similar {collection.name}:")
     for rank, (doc_id, doc, dist) in enumerate(zip(ids, docs, dists), start=1):
         print(f"{rank}. id={doc_id}, distance={dist:.4f}")
         print(f"   document: {doc}")
         temp_path = doc.split("/")[-1]
         if (collection.name == "images"):
-            display(get_image(s3_client,"trusted-zone", f"{collection.name}/{temp_path}"))
+            image = (get_image(s3_client,"trusted-zone", f"{collection.name}/{temp_path}"))
+            res.append((image,doc))
         elif (collection.name == "texts"):
             print("\n" + get_text(s3_client,"trusted-zone", f"{collection.name}/{temp_path}") + "\n")
         elif (collection.name == "videos"):
             frames = get_video(s3_client,"trusted-zone", f"{collection.name}/{temp_path}")
-            for frame in frames:
-                display(frame)
+            play_frames_opencv(frames)
+
+    if res:
+        n = len(res)
+        cols = min(3, n)
+        rows = math.ceil(n / cols)
+
+        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols + 1, 3.5 * rows))
+        # Normalize axes to 2D array
+        if rows == 1 and cols == 1:
+            axes = [[axes]]
+        elif rows == 1:
+            axes = [axes]
+        elif cols == 1:
+            axes = [[ax] for ax in axes]
+        idx = 0
+        for img, title in res:
+            r, c = divmod(idx, cols)
+            ax = axes[r][c]
+            ax.imshow(img)
+            ax.axis("off")
+            ax.set_title(title, fontsize=9)
+            idx += 1
+
+        # Hide unused axes
+        for i in range(n, rows * cols):
+            r, c = divmod(i, cols)
+            axes[r][c].axis("off")
+
+        fig.suptitle(f"Top-{n} Images (each ≤ {5})", fontsize=12)
+        fig.tight_layout()
+        plt.show(block=True)
     return results
 
 

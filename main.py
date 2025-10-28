@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, List
 
-
+from multi_modal_task.task3 import get_recommendation
 from utils.bucket_utils import replicate_bucket,ensure_bucket,ensure_prefixes
 from utils.make_conecction import make_s3_client, make_chromaDB_client
 from utils.collection_utils import create_chroma_collection
@@ -26,7 +26,7 @@ from exploitation_zone.exploitation_zone_video_embeddings import videos_to_embed
 from exploitation_zone.embeddings_combination import combining_image_text
 
 from multi_modal_task.task1 import get_similar_text, get_similar_image, get_similar_video
-
+from multi_modal_task.task2 import find_k_similars_by_file
 
 # ---- Dataclasses to carry structured args ----
 @dataclass
@@ -346,13 +346,14 @@ def exploitation(chroma_client, s3_client):
     tokenizer, text_model,  text_device = get_text_model()
     texts_to_embeddings(s3_client,"trusted-zone",text_collection,tokenizer,text_model,text_device,"texts/")
 
-    image_text_collection = create_chroma_collection(chroma_client, "images_texts")
+    image_text_collection = create_chroma_collection(chroma_client, "texts_images")
     image_collection = create_chroma_collection(chroma_client, "images")
     combining_image_text(image_collection,text_collection,image_text_collection)
 
 
 
 def multi_modal_task_execution(chroma_client, s3_client):
+    """
     example_text = get_text(s3_client,"trusted-zone", "texts/text_1761318441201.txt")
     text_collection = create_chroma_collection(chroma_client, "texts")
     result1 = get_similar_text(s3_client,text_collection,example_text)
@@ -365,7 +366,16 @@ def multi_modal_task_execution(chroma_client, s3_client):
 
     video_collection = create_chroma_collection(chroma_client, "videos")
     example_video = get_video(s3_client, "trusted-zone", "videos/video_1761318468194.mp4")
-    result3 = get_similar_video(s3_client, video_collection, example_video)
+    #result3 = get_similar_video(s3_client, video_collection, example_video)
+
+    image_text_collection = create_chroma_collection(chroma_client, "texts_images")
+    result4 = find_k_similars_by_file(s3_client,image_text_collection,example_text,"text")
+    """
+    image_text_collection = create_chroma_collection(chroma_client, "texts_images")
+
+    example_image = get_image(s3_client,"trusted-zone","images/image_1761318414668.png")
+
+    result5 = get_recommendation(s3_client,image_text_collection,"Please recommend me an open-world action RPG game with exploration similar to the one shown in the image.",example_image)
 
 
 
