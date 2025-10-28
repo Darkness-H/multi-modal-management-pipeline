@@ -761,6 +761,12 @@ class GUI(tk.Tk):
         try:
             landing_init(self.s3_client)
             temporal_landing_init(self.s3_client,cfg.temporal)
+            persistent_landing_init(self.s3_client)
+            formatted_init(self.s3_client)
+            formatted(self.s3_client)
+            trusted_init(self.s3_client)
+            trusted(self.s3_client)
+            exploitation(self.chroma_client,self.s3_client)
         except Exception as e:
             print(e)
 
