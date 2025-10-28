@@ -53,7 +53,7 @@ def upload_strings_separately(bucket_name, client, strings, path="temporal-landi
     }
 
     logger.info(
-        "Uploading strings: bucket=%s, path=%s, prefix=%s, limit=%d, offset=%d",
+        "Uploading strings: bucket=%s, path=%s, prefix=%s, limit=%s, offset=%d",
         bucket_name, path or "(root)", prefix, limit, offset
     )
 

@@ -1,8 +1,12 @@
 # Importing useful dependencies
 import io
+import logging
 import os
+import time
+import tracemalloc
 
 import boto3
+import psutil
 import torch
 import imageio
 import cv2 # for reading video frames
@@ -21,6 +25,7 @@ from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration, 
 from exploitation_zone.exploitation_zone_image_embeddings import get_image
 from exploitation_zone.utils_exploitation.embeddings import embed_text, embed_image
 from exploitation_zone.utils_exploitation.getter import get_text
+from utils.file_utils import fmt_bytes
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -97,8 +102,13 @@ def prepare_prompt(client, collection,query = "",image = None):
         images_list = [retrieved_image,image]
 
     return multimodal_prompt,images_list
-
+logger = logging.getLogger(__name__)
 def get_recommendation(client, collection,query = None,image = None):
+    proc = psutil.Process(os.getpid())
+    rss_before = proc.memory_info().rss
+    t0 = time.perf_counter()
+    tracemalloc.start()
+    logger.info("Start generate recommendation")
     multimodal_prompt,images_list = prepare_prompt(client,collection,query, image)
     prompt = processor.apply_chat_template(multimodal_prompt, add_generation_prompt=True)
 
@@ -118,7 +128,26 @@ def get_recommendation(client, collection,query = None,image = None):
 
     print("\n🎮 Model Recommendation:")
     print(clean_output)
-    print("\nHere you have an image of the game: ")
+    text ="\n🎮 Model Recommendation: \n" + clean_output
+
+    # time
+    elapsed = time.perf_counter() - t0
+    # memory
+    current_rss = proc.memory_info().rss
+    rss_diff = current_rss - rss_before
+    # python heap peak
+    cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    logger.info(
+        "METRICS | elapsed=%0.2f s | rss_before=%s | rss_after=%s | rss_diff=%s | py_heap_peak=%s",
+        elapsed,
+        fmt_bytes(rss_before),
+        fmt_bytes(current_rss),
+        fmt_bytes(rss_diff),
+        fmt_bytes(peak),
+    )
+
+    return text
 
 
 

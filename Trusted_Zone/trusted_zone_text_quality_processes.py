@@ -740,12 +740,12 @@ def clean_text(client,bucket,prefix , max_tokens=512):
             # If still mixed-language or English probability is too low, try textual fixes and deep cleaning,
             # then re-check. If still not acceptable, delete the object.
             # (Typical causes: rare code fragments, heavy non-ASCII characters, odd punctuation.)
-            if (mixed_languages or language_probs.get("en", 0) < 0.85):
+            if (mixed_languages or language_probs.get("en", 0) < 0.95):
                 fixed = fix_text(text)
                 text = deep_clean(fixed)
                 language_probs, mixed_languages = language_check(text)
                 # Final rejection if it still fails the language criteria
-                if (mixed_languages or language_probs.get("en", 0) < 0.85):
+                if (mixed_languages or language_probs.get("en", 0) < 0.95):
                     summary["unreliable_deleted"] += 1
                     client.delete_object(Bucket=bucket, Key=row.key)
                     continue

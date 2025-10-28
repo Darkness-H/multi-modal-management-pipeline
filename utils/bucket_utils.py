@@ -1,7 +1,8 @@
 # Importing useful dependencies
 import logging
+import random
 import time
-from typing import Iterable
+from typing import Iterable, Optional, List
 from botocore.exceptions import ClientError
 
 
@@ -124,3 +125,56 @@ def replicate_bucket(client, src_bucket: str, dest_bucket: str, src_prefix: str 
         )
 
 
+def list_s3_keys(
+    client,
+    bucket: str,
+    prefix: Optional[str] = None,
+    suffix: Optional[str] = None,
+    max_keys: Optional[int] = None
+) -> List[str]:
+    """
+    List object keys in an S3-compatible bucket with optional prefix/suffix filtering.
+    Uses paginator to handle large listings.
+
+    client          : obj                   - S3-compatible client (e.g., boto3.client("s3")).
+    bucket          : str                   - source S3/MinIO bucket.
+    prefix          : str                   - only include keys that start with this prefix
+    suffix          : str                   - only include keys that end with this suffix (e.g., ".txt")
+    max_keys        : str                   - if set, stop after collecting this many keys
+
+    """
+    paginator = client.get_paginator("list_objects_v2")
+    pagination_cfg = {"Bucket": bucket}
+    if prefix:
+        pagination_cfg["Prefix"] = prefix
+
+    keys = []
+    for page in paginator.paginate(**pagination_cfg):
+        contents = page.get("Contents", [])
+        for obj in contents:
+            key = obj["Key"]
+            # skip "folders" (zero-sized placeholders that end with '/')
+            if key.endswith("/"):
+                continue
+            if suffix and not key.endswith(suffix):
+                continue
+            keys.append(key)
+            if max_keys and len(keys) >= max_keys:
+                return keys
+    return keys
+
+
+def get_random_s3_key(
+    s3_client,
+    bucket: str,
+    prefix: Optional[str] = None,
+    suffix: Optional[str] = None
+) -> str:
+    """
+    Return a single random key from an S3-compatible bucket,
+    constrained by optional prefix/suffix.
+    """
+    keys = list_s3_keys(s3_client, bucket, prefix=prefix, suffix=suffix)
+    if not keys:
+        raise FileNotFoundError(f"No objects found in '{bucket}' (prefix={prefix!r}, suffix={suffix!r}).")
+    return random.choice(keys)

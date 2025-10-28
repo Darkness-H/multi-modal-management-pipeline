@@ -1,8 +1,13 @@
 # Importing useful dependencies
+import logging
 import math
+import os
+import time
+import tracemalloc
 
 import cv2
 import open_clip
+import psutil
 import torch
 
 import numpy as np
@@ -12,7 +17,9 @@ from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
 from exploitation_zone.utils_exploitation.getter import get_text, get_image,get_video
 from exploitation_zone.utils_exploitation.embeddings import embed_text,embed_image,embed_video
+from utils.file_utils import fmt_bytes
 
+logger = logging.getLogger(__name__)
 
 def play_frames_opencv(frames, win_name="Frames"):
     """
@@ -119,8 +126,29 @@ tokenizer = open_clip.get_tokenizer("ViT-B-16") # Tokenizer for texts
 model_text.to(device)
 
 def get_similar_text(s3_client, colleccion,text):
+    proc = psutil.Process(os.getpid())
+    rss_before = proc.memory_info().rss
+    t0 = time.perf_counter()
+    tracemalloc.start()
+    logger.info("Start similarity search")
     query_embed = embed_text(tokenizer, model_text, text, device)
-    res_text = find_similar_files(s3_client, colleccion, query_embed, top_k=5)
+    res_text = find_similar_files(s3_client, colleccion, query_embed, top_k=3)
+    # time
+    elapsed = time.perf_counter() - t0
+    # memory
+    current_rss = proc.memory_info().rss
+    rss_diff = current_rss - rss_before
+    # python heap peak
+    cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    logger.info(
+        "METRICS | elapsed=%0.2f s | rss_before=%s | rss_after=%s | rss_diff=%s | py_heap_peak=%s",
+        elapsed,
+        fmt_bytes(rss_before),
+        fmt_bytes(current_rss),
+        fmt_bytes(rss_diff),
+        fmt_bytes(peak),
+    )
     return res_text
 
 # Load model + preprocessing used when creating the image embeddings
@@ -128,8 +156,29 @@ model_image, _, preprocess_image = open_clip.create_model_and_transforms("ViT-B-
 model_image.to(device)
 
 def get_similar_image(s3_client, colleccion,image):
+    proc = psutil.Process(os.getpid())
+    rss_before = proc.memory_info().rss
+    t0 = time.perf_counter()
+    tracemalloc.start()
+    logger.info("Start similarity search")
     query_embed = embed_image(preprocess_image, model_image, image, device)
-    res_image = find_similar_files(s3_client, colleccion, query_embed, top_k=5)
+    res_image = find_similar_files(s3_client, colleccion, query_embed, top_k=3)
+    # time
+    elapsed = time.perf_counter() - t0
+    # memory
+    current_rss = proc.memory_info().rss
+    rss_diff = current_rss - rss_before
+    # python heap peak
+    cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    logger.info(
+        "METRICS | elapsed=%0.2f s | rss_before=%s | rss_after=%s | rss_diff=%s | py_heap_peak=%s",
+        elapsed,
+        fmt_bytes(rss_before),
+        fmt_bytes(current_rss),
+        fmt_bytes(rss_diff),
+        fmt_bytes(peak),
+    )
     return res_image
 
 
@@ -138,6 +187,27 @@ model_video = CLIPVisionModelWithProjection.from_pretrained("Searchium-ai/clip4c
 model_video.to(device)
 
 def get_similar_video(s3_client, colleccion,video_frames):
+    proc = psutil.Process(os.getpid())
+    rss_before = proc.memory_info().rss
+    t0 = time.perf_counter()
+    tracemalloc.start()
+    logger.info("Start similarity search")
     query_embed = embed_video(preprocess_video, model_video, video_frames, device)
-    res_video = find_similar_files(s3_client, colleccion, query_embed, top_k=5)
+    res_video = find_similar_files(s3_client, colleccion, query_embed, top_k=3)
+    # time
+    elapsed = time.perf_counter() - t0
+    # memory
+    current_rss = proc.memory_info().rss
+    rss_diff = current_rss - rss_before
+    # python heap peak
+    cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    logger.info(
+        "METRICS | elapsed=%0.2f s | rss_before=%s | rss_after=%s | rss_diff=%s | py_heap_peak=%s",
+        elapsed,
+        fmt_bytes(rss_before),
+        fmt_bytes(current_rss),
+        fmt_bytes(rss_diff),
+        fmt_bytes(peak),
+    )
     return res_video
