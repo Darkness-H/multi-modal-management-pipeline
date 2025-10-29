@@ -11,33 +11,33 @@ from typing import Optional, List
 
 from pathlib import Path
 
-from utils.file_utils import prepare_file_for_search
+from src.utils.file_utils import prepare_file_for_search
 from adodbapi import connect
 
-from utils.bucket_utils import replicate_bucket, ensure_bucket, ensure_prefixes, get_random_s3_key
-from utils.make_conecction import make_s3_client, make_chromaDB_client
-from utils.collection_utils import create_chroma_collection
+from src.utils.bucket_utils import replicate_bucket, ensure_bucket, ensure_prefixes, get_random_s3_key
+from src.utils.make_conecction import make_s3_client, make_chromaDB_client
+from src.utils.collection_utils import create_chroma_collection
 
-from Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
-from Landing_Zone.persistent_landing import move_files
+from src.Landing_Zone.temporal_landing import load_huggingface_dataset, upload_strings_separately,upload_media_from_links
+from src.Landing_Zone.persistent_landing import move_files
 
-from Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
-from Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
-from Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_mp4
+from src.Formatted_Zone.formatted_zone_homogenizer_images import convert_images_to_png
+from src.Formatted_Zone.formatted_zone_homogenizer_texts import convert_documents_to_txt
+from src.Formatted_Zone.formatted_zone_homogenizer_videos import convert_videos_to_mp4
 
-from Trusted_Zone.trusted_zone_image_quality_processes import preprocess_image
-from Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
-from Trusted_Zone.trusted_zone_text_quality_processes import clean_text
+from src.Trusted_Zone.trusted_zone_image_quality_processes import preprocess_image
+from src.Trusted_Zone.trusted_zone_video_quality_process import preprocess_video
+from src.Trusted_Zone.trusted_zone_text_quality_processes import clean_text
 
-from exploitation_zone.exploitation_zone_image_embeddings import images_to_embeddings, get_image_model
-from exploitation_zone.exploitation_zone_text_embeddings import get_text_model, texts_to_embeddings
-from exploitation_zone.utils_exploitation.getter import get_text, get_image, get_video
-from exploitation_zone.exploitation_zone_video_embeddings import videos_to_embeddings, get_video_model
-from exploitation_zone.embeddings_combination import combining_image_text
+from src.exploitation_zone.exploitation_zone_image_embeddings import images_to_embeddings, get_image_model
+from src.exploitation_zone.exploitation_zone_text_embeddings import get_text_model, texts_to_embeddings
+from src.exploitation_zone.utils_exploitation.getter import get_text, get_image, get_video
+from src.exploitation_zone.exploitation_zone_video_embeddings import videos_to_embeddings, get_video_model
+from src.exploitation_zone.embeddings_combination import combining_image_text
 
-from multi_modal_task.same_modal_similarity_search import get_similar_text, get_similar_image, get_similar_video
-from multi_modal_task.multi_modal_similarity_search import find_k_similars_by_file
-from multi_modal_task.generative_recommendation import get_recommendation
+from src.multi_modal_task.same_modal_similarity_search import get_similar_text, get_similar_image, get_similar_video
+from src.multi_modal_task.multi_modal_similarity_search import find_k_similars_by_file
+from src.multi_modal_task.generative_recommendation import get_recommendation
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, colorchooser
@@ -158,9 +158,9 @@ def connect_minio(args_minio):
     fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
 
-    os.makedirs("../logs", exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
     fh = TimedRotatingFileHandler(
-        filename=os.path.join("../logs", "app.log"),
+        filename=os.path.join("logs", "app.log"),
         when="midnight",
         backupCount=7,
         encoding="utf-8"
@@ -367,6 +367,7 @@ def connect_chromaDB(args_chroma):
         bearer_token=args_chroma.bearer_token,
         timeout=args_chroma.timeout,
     )
+
 
     return client
 
