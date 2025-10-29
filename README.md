@@ -76,6 +76,16 @@ docker run -d --name chroma \
 
 > Follow this order so that data flows correctly from ingestion to exploitation while maintaining the layered structure.
 
+## Orchestrated Execution Order
+To run the project, you need to have Python installed on your machine.
+To install Python (version >= 3.10.0), follow the instructions on the official website: https://www.python.org/downloads/
+
+After installing Python, you need to install the necessary libraries and packages required to run the project using the following command:
+> pip3 install -r requirements.txt
+
+To execute the interface, simply run the main.py file using the following command in the terminal:
+
+> python main.py
 ---
 
 ## Notes

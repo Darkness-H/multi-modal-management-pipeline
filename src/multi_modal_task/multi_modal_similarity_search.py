@@ -12,8 +12,10 @@ import open_clip
 import numpy as np
 
 
-from exploitation_zone.utils_exploitation.embeddings import embed_image,embed_text
-from exploitation_zone.utils_exploitation.getter import get_text, get_image
+from src.exploitation_zone.utils_exploitation.embeddings import embed_image,embed_text
+from src.exploitation_zone.utils_exploitation.getter import get_text, get_image
+from src.utils.file_utils import fmt_bytes
+
 logger = logging.getLogger(__name__)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

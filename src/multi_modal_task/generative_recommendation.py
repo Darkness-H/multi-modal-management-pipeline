@@ -1,31 +1,19 @@
 # Importing useful dependencies
-import io
 import logging
 import os
 import time
 import tracemalloc
 
-import boto3
 import psutil
 import torch
-import imageio
-import cv2 # for reading video frames
-import chromadb
-import requests
 import open_clip
-import numpy as np
-from PIL import Image
-from io import BytesIO
-import ipywidgets as widgets
-from IPython.display import display
-from matplotlib import pyplot as plt
 # If you are having problems importing these functions from the transformers library, try executing them on Kaggle
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration, CLIPVisionModelWithProjection, CLIPImageProcessor
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
-from exploitation_zone.exploitation_zone_image_embeddings import get_image
-from exploitation_zone.utils_exploitation.embeddings import embed_text, embed_image
-from exploitation_zone.utils_exploitation.getter import get_text
-from utils.file_utils import fmt_bytes
+from src.exploitation_zone.exploitation_zone_image_embeddings import get_image
+from src.exploitation_zone.utils_exploitation.embeddings import embed_text, embed_image
+from src.exploitation_zone.utils_exploitation.getter import get_text
+from src.utils.file_utils import fmt_bytes
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 

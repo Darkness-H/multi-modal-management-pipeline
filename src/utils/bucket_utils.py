@@ -119,10 +119,10 @@ def replicate_bucket(client, src_bucket: str, dest_bucket: str, src_prefix: str 
                 logger.exception("Failed to copy %s/%s -> %s/%s: %s", src_bucket, key, dest_bucket, new_key, e)
 
         elapsed = time.perf_counter() - t0
-        logger.info(
-            "Replication completed in %.2fs — scanned=%d, copied=%d, skipped_folders=%d, failed=%d",
-            elapsed, summary["scanned"], summary["copied"], summary["skipped_folders"], summary["failed"]
-        )
+    logger.info(
+        "Replication completed in %.2fs — scanned=%d, copied=%d, skipped_folders=%d, failed=%d",
+        elapsed, summary["scanned"], summary["copied"], summary["skipped_folders"], summary["failed"]
+    )
 
 
 def list_s3_keys(

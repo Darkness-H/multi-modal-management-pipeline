@@ -15,9 +15,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
 
-from exploitation_zone.utils_exploitation.getter import get_text, get_image,get_video
-from exploitation_zone.utils_exploitation.embeddings import embed_text,embed_image,embed_video
-from utils.file_utils import fmt_bytes
+from src.exploitation_zone.utils_exploitation.getter import get_text, get_image,get_video
+from src.exploitation_zone.utils_exploitation.embeddings import embed_text,embed_image,embed_video
+from src.utils.file_utils import fmt_bytes
 
 logger = logging.getLogger(__name__)
 

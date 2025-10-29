@@ -158,13 +158,13 @@ def connect_minio(args_minio):
     fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
     fh = TimedRotatingFileHandler(
-        filename=os.path.join("logs", "app.log"),
+        filename=os.path.join("../logs", "app.log"),
         when="midnight",
         backupCount=7,
         encoding="utf-8"
     )
     fh.setFormatter(logging.Formatter(fmt, datefmt))
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs("../logs", exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, args_minio.log_level.upper(), logging.INFO),
         format=fmt,
@@ -1024,9 +1024,6 @@ if __name__ == "__main__":
 
     args = parse_all_args()
     app = GUI(args)
-    log_win = LogViewer(app, title="Live Logs")
-    logger = logging.getLogger(__name__)
-    log_win.attach_to(logger)
     app.mainloop()
     """
     s3_client = connect_minio(args.ini)
