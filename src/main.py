@@ -157,6 +157,8 @@ def connect_minio(args_minio):
     """
     fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
+
+    os.makedirs("../logs", exist_ok=True)
     fh = TimedRotatingFileHandler(
         filename=os.path.join("../logs", "app.log"),
         when="midnight",
@@ -164,7 +166,6 @@ def connect_minio(args_minio):
         encoding="utf-8"
     )
     fh.setFormatter(logging.Formatter(fmt, datefmt))
-    os.makedirs("../logs", exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, args_minio.log_level.upper(), logging.INFO),
         format=fmt,
