@@ -4,15 +4,13 @@ import os
 import queue
 import sys
 import threading
-import warnings
 from dataclasses import dataclass
 from logging.handlers import TimedRotatingFileHandler
-from typing import Optional, List
+from typing import Optional
 
 from pathlib import Path
 
 from src.utils.file_utils import prepare_file_for_search
-from adodbapi import connect
 
 from src.utils.bucket_utils import replicate_bucket, ensure_bucket, ensure_prefixes, get_random_s3_key
 from src.utils.make_conecction import make_s3_client, make_chromaDB_client
@@ -667,7 +665,6 @@ class GUI(tk.Tk):
         file_frame = ttk.Frame(f)
         file_frame.grid(row=2, column=0, columnspan=3, sticky="ew", **pad)
         file_frame.grid_columnconfigure(1, weight=1)
-
         ttk.Label(file_frame, text="Text").grid(row=0, column=0, sticky="e", padx=(0, 8))
         ent_file = ttk.Entry(file_frame, textvariable=self.var_file_path)
         ent_file.grid(row=0, column=1, sticky="ew")
@@ -675,18 +672,19 @@ class GUI(tk.Tk):
             file_frame, text="Browse…",
             command=lambda: self._browse_file_with_type()
         )
+        self.var_file_type2 = tk.StringVar(value="Queries")
         btn_browse.grid(row=0, column=2, sticky="w", padx=(8, 0))
 
         file_frame2 = ttk.Frame(f)
         file_frame2.grid(row=3, column=0, columnspan=3, sticky="ew", **pad)
         file_frame2.grid_columnconfigure(1, weight=1)
-
+        self.var_file_path2 = tk.StringVar()
         ttk.Label(file_frame2, text="Image").grid(row=0, column=0, sticky="e", padx=(0, 8))
-        ent_file2 = ttk.Entry(file_frame2, textvariable=self.var_file_path)
+        ent_file2 = ttk.Entry(file_frame2, textvariable=self.var_file_path2)
         ent_file2.grid(row=0, column=1, sticky="ew")
         btn_browse2 = ttk.Button(
             file_frame2, text="Browse…",
-            command=lambda: self._browse_file_with_type()
+            command=lambda: self._browse_image()
         )
         btn_browse2.grid(row=0, column=2, sticky="w", padx=(8, 0))
 
@@ -824,7 +822,7 @@ class GUI(tk.Tk):
         text = None
         img = None
         if file_type == "queries":
-            text = self.txt_queries1.get("1.0", "end-1c").strip()
+            text = self.txt_queries2.get("1.0", "end-1c").strip()
         elif text_file:
             text = prepare_file_for_search(text_file,file_type)
 
@@ -860,10 +858,30 @@ class GUI(tk.Tk):
 
         ext = Path(file).suffix.lower().lstrip(".")
         if allowed and ext not in allowed:
-            logger.info("File type not supported")
             return
 
         self.var_file_path.set(file)
+
+
+    def _browse_image(self):
+
+
+
+        patterns = [("Image", "*.png *.jpg *.jpeg *.webp *.bmp"), ("All files", "*.*")]
+        allowed = {"png", "jpg", "jpeg", "webp", "bmp"}
+
+        file = filedialog.askopenfilename(
+            title="Select file",
+            filetypes=patterns
+        )
+        if not file:
+            return
+
+        ext = Path(file).suffix.lower().lstrip(".")
+        if allowed and ext not in allowed:
+            return
+
+        self.var_file_path2.set(file)
 
     def _handle_text_result(self,result,type):
 
